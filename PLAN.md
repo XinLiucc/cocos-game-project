@@ -41,6 +41,16 @@
 - 既然练手项目不再绑定微信/抖音小游戏首发目标，之前"换引擎会丢失微信小游戏官方支持"的顾虑暂不适用。
 - Godot 官方支持 Linux 编辑器，理论上不再需要双系统分工，两台机器都能直接装 Godot + 跑
   Claude Code，具体是否还要跨机器同步、用什么方式同步，等实际用起来再定。
+- 2026-07-25 更新：Ubuntu 机器上完成实际安装。Godot 4.7.1 官方二进制装在 `~/Applications/Godot/`，
+  软链到 `~/.local/bin/godot`；桌面应用图标也配好了（`~/.local/share/applications/godot.desktop`）。
+  项目骨架建在仓库内的 `car_repair_shop/` 子目录（`project.godot` 手写最小配置，暂无主场景）。
+  MCP 一开始选了 GDAI MCP（3ddelano/gdai-mcp-plugin-godot），但核实后发现两个问题：插件包不在
+  GitHub 上直接可下载（要走 Buy Me a Coffee 页面），且实际是 $19 一次性付费（不是免费，早前调研
+  的信息有误）。改用 **tugcantopaloglu/godot-mcp**：MIT 协议真开源，157 个工具，明确测试过
+  Godot 4.7，`git clone` 到 `~/Applications/godot-mcp/` 后 `npm install && npm run build` 装好，
+  已通过 `claude mcp add` 接入 Claude Code（显示 Connected）。运行时调试用的
+  `mcp_interaction_server.gd` 已拷到 `car_repair_shop/scripts/` 并注册为 autoload
+  `McpInteractionServer`，还没在编辑器里实测过。
 - 历史记录（Cocos Creator 阶段的分工方案，供参考）：曾用 Ubuntu 写代码（Claude Code + git）+
   Windows 跑 Cocos Creator 编辑器，通过 git 仓库同步，因为 Cocos Creator 无官方 Linux 版；
   曾考虑换引擎规避这个问题，但当时微信官方文档中完成小游戏适配的引擎只有 Cocos、Egret、Laya，
@@ -83,3 +93,6 @@
   （用户已有一定 Godot 经验，官方支持 Linux，MCP 生态更成熟），不再需要 Ubuntu/Windows 双系统
   分工。是否要为正式产品上线微信/抖音小游戏而换回 Cocos/Egret/Laya、重新练一遍引擎特定部分，
   留到练手项目完成、需要定型正式产品时再评估。
+- 2026-07-25：Ubuntu 机器上实际装好 Godot 4.7.1，建了项目骨架 `car_repair_shop/`。MCP 集成方案从
+  GDAI MCP（发现是付费）改为免费开源的 tugcantopaloglu/godot-mcp，已接入 Claude Code。细节见上方
+  "开发环境"一节。
