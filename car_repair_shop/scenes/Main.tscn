@@ -1,0 +1,30 @@
+[gd_scene format=3 uid="uid://le6w5c3bcssy"]
+
+[ext_resource type="Script" uid="uid://0r2mvlsqy5qp" path="res://scripts/Main.gd" id="1_elqb8"]
+
+[node name="root" type="Node2D" unique_id=461627710]
+script = ExtResource("1_elqb8")
+
+[node name="MoneyLabel" type="Label" parent="." unique_id=677769128]
+offset_left = 60.0
+offset_top = 60.0
+offset_right = 60.0
+offset_bottom = 60.0
+text = "金钱: 0   口碑: 0"
+
+[node name="OrderLabel" type="Label" parent="." unique_id=484800525]
+offset_left = 60.0
+offset_top = 100.0
+offset_right = 60.0
+offset_bottom = 100.0
+text = "等待接单"
+
+[node name="RepairButton" type="Button" parent="." unique_id=810011311]
+offset_left = 60.0
+offset_top = 140.0
+offset_right = 180.0
+offset_bottom = 180.0
+text = "接单修车"
+
+[node name="RepairTimer" type="Timer" parent="." unique_id=984195295]
+wait_time = 0.016
