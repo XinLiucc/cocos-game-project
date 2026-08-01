@@ -96,3 +96,11 @@
 - 2026-07-25：Ubuntu 机器上实际装好 Godot 4.7.1，建了项目骨架 `car_repair_shop/`。MCP 集成方案从
   GDAI MCP（发现是付费）改为免费开源的 tugcantopaloglu/godot-mcp，已接入 Claude Code。细节见上方
   "开发环境"一节。
+- 2026-08-01：首次实测 MCP 全流程——通过 Claude Code 用 MCP 建场景、加节点、跑项目、截图，确认
+  `McpInteractionServer` autoload 正常工作，里程碑 1（环境搭建 + demo）算是真正落地。在此基础上
+  搭了核心循环里"接单→结算"这一段的最小可玩版本（v0）：新增 `GameState.gd`（autoload，管理金钱/
+  口碑全局状态，通过 signal 通知 UI 刷新）、`Main.tscn` + `Main.gd`（点击按钮触发 3 秒倒计时修车，
+  完成后加钱加口碑）。招人、升级、飞轮部分还没做；数值全是占位值，之后再细化。过程中发现一个
+  MCP 工具的坑：`attach_script` 是在隔离的无头进程里编译脚本，不会加载项目的 autoload 列表，所以
+  脚本里不能直接写 `GameState.xxx` 这种编译期全局标识符，得改成运行时 `get_node("/root/GameState")`
+  查找，否则会报"找不到标识符"。
