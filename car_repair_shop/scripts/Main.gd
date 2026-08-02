@@ -1,8 +1,10 @@
 extends Node2D
 
-const REPAIR_TIME := 0.1
-const REPAIR_PAYOUT := 50
-const REPAIR_REPUTATION := 1
+const ORDER_TYPES: Array[Resource] = [
+	preload("res://resources/orders/sedan.tres"),
+	preload("res://resources/orders/suv.tres"),
+	preload("res://resources/orders/sports_car.tres"),
+]
 
 @onready var money_label: Label = $MoneyLabel
 @onready var order_label: Label = $OrderLabel
@@ -11,10 +13,10 @@ const REPAIR_REPUTATION := 1
 @onready var game_state: Node = get_node("/root/GameState")
 
 var repairing := false
+var current_order: Resource
 
 
 func _ready() -> void:
-	repair_timer.wait_time = REPAIR_TIME
 	repair_timer.one_shot = true
 	repair_timer.timeout.connect(_on_repair_complete)
 	repair_button.pressed.connect(_on_repair_button_pressed)
@@ -27,17 +29,19 @@ func _on_repair_button_pressed() -> void:
 	if repairing:
 		return
 	repairing = true
+	current_order = ORDER_TYPES[randi() % ORDER_TYPES.size()]
 	repair_button.disabled = true
-	order_label.text = "维修中..."
+	order_label.text = "维修中：%s（预计 %.1fs）" % [current_order.car_name, current_order.repair_time]
+	repair_timer.wait_time = current_order.repair_time
 	repair_timer.start()
 
 
 func _on_repair_complete() -> void:
-	game_state.add_money(REPAIR_PAYOUT)
-	game_state.add_reputation(REPAIR_REPUTATION)
+	game_state.add_money(current_order.payout)
+	game_state.add_reputation(current_order.reputation_gain)
+	order_label.text = "完成：%s，收入 %d，口碑 +%d" % [current_order.car_name, current_order.payout, current_order.reputation_gain]
 	repairing = false
 	repair_button.disabled = false
-	order_label.text = "等待接单"
 
 
 func _on_state_changed(_new_amount: int) -> void:
