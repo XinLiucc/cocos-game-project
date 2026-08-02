@@ -8,3 +8,8 @@
 # Mono-specific ignores
 .mono/
 data_*/
+
+# godot-mcp copies scripts/mcp_interaction_server.gd here at runtime;
+# the tracked copy lives in scripts/ and is what project.godot autoloads
+/mcp_interaction_server.gd
+/mcp_interaction_server.gd.uid
