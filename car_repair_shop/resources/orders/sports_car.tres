@@ -1,0 +1,10 @@
+[gd_resource type="Resource" format=3]
+
+[ext_resource type="Script" path="res://scripts/OrderType.gd" id="1_2fu6b"]
+
+[resource]
+script = ExtResource("1_2fu6b")
+car_name = "跑车"
+repair_time = 3.5
+payout = 120
+reputation_gain = 3

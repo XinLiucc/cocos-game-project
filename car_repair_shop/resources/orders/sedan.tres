@@ -1,0 +1,8 @@
+[gd_resource type="Resource" format=3]
+
+[ext_resource type="Script" path="res://scripts/OrderType.gd" id="1_b662p"]
+
+[resource]
+script = ExtResource("1_b662p")
+car_name = "家用轿车"
+payout = 30
