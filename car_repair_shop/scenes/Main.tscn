@@ -1,6 +1,6 @@
-[gd_scene format=3 uid="uid://le6w5c3bcssy"]
+[gd_scene format=3]
 
-[ext_resource type="Script" uid="uid://0r2mvlsqy5qp" path="res://scripts/Main.gd" id="1_elqb8"]
+[ext_resource type="Script" path="res://scripts/Main.gd" id="1_elqb8"]
 
 [node name="root" type="Node2D" unique_id=461627710]
 script = ExtResource("1_elqb8")
@@ -28,3 +28,17 @@ text = "接单修车"
 
 [node name="RepairTimer" type="Timer" parent="." unique_id=984195295]
 wait_time = 0.016
+
+[node name="WorkerLabel" type="Label" parent="." unique_id=622888616]
+offset_left = 60.0
+offset_top = 220.0
+offset_right = 60.0
+offset_bottom = 220.0
+text = "工人: 0"
+
+[node name="HireButton" type="Button" parent="." unique_id=1833872224]
+offset_left = 60.0
+offset_top = 260.0
+offset_right = 220.0
+offset_bottom = 300.0
+text = "雇佣工人 (100)"
