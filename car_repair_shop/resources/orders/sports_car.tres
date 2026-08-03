@@ -8,3 +8,4 @@ car_name = "跑车"
 repair_time = 3.5
 payout = 120
 reputation_gain = 3
+min_reputation = 25
