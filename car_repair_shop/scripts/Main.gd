@@ -12,6 +12,8 @@ const ORDER_TYPES: Array[Resource] = [
 @onready var repair_timer: Timer = $RepairTimer
 @onready var worker_label: Label = $WorkerLabel
 @onready var hire_button: Button = $HireButton
+@onready var facility_label: Label = $FacilityLabel
+@onready var upgrade_button: Button = $UpgradeButton
 @onready var game_state: Node = get_node("/root/GameState")
 
 var repairing := false
@@ -23,9 +25,11 @@ func _ready() -> void:
 	repair_timer.timeout.connect(_on_repair_complete)
 	repair_button.pressed.connect(_on_repair_button_pressed)
 	hire_button.pressed.connect(_on_hire_button_pressed)
+	upgrade_button.pressed.connect(_on_upgrade_button_pressed)
 	game_state.money_changed.connect(_on_state_changed)
 	game_state.reputation_changed.connect(_on_state_changed)
 	game_state.worker_count_changed.connect(_on_worker_count_changed)
+	game_state.facility_level_changed.connect(_on_facility_level_changed)
 	_update_labels()
 
 
@@ -46,10 +50,15 @@ func _on_hire_button_pressed() -> void:
 	game_state.hire_worker()
 
 
+func _on_upgrade_button_pressed() -> void:
+	game_state.upgrade_facility()
+
+
 func _on_repair_complete() -> void:
-	game_state.add_money(current_order.payout)
+	var actual_payout: int = roundi(current_order.payout * game_state.payout_multiplier())
+	game_state.add_money(actual_payout)
 	game_state.add_reputation(current_order.reputation_gain)
-	order_label.text = "完成：%s，收入 %d，口碑 +%d" % [current_order.car_name, current_order.payout, current_order.reputation_gain]
+	order_label.text = "完成：%s，收入 %d，口碑 +%d" % [current_order.car_name, actual_payout, current_order.reputation_gain]
 	repairing = false
 	repair_button.disabled = false
 
@@ -62,8 +71,15 @@ func _on_worker_count_changed(_new_count: int) -> void:
 	_update_labels()
 
 
+func _on_facility_level_changed(_new_level: int) -> void:
+	_update_labels()
+
+
 func _update_labels() -> void:
 	money_label.text = "金钱: %d   口碑: %d" % [game_state.money, game_state.reputation]
 	worker_label.text = "工人: %d" % game_state.worker_count
 	hire_button.text = "雇佣工人 (%d)" % game_state.next_hire_cost()
 	hire_button.disabled = game_state.money < game_state.next_hire_cost()
+	facility_label.text = "工位等级: %d" % game_state.facility_level
+	upgrade_button.text = "升级工位 (%d)" % game_state.next_upgrade_cost()
+	upgrade_button.disabled = game_state.money < game_state.next_upgrade_cost()
