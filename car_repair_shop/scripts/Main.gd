@@ -33,7 +33,8 @@ func _on_repair_button_pressed() -> void:
 	if repairing:
 		return
 	repairing = true
-	current_order = ORDER_TYPES[randi() % ORDER_TYPES.size()]
+	var available_orders := ORDER_TYPES.filter(func(o: Resource) -> bool: return game_state.reputation >= o.min_reputation)
+	current_order = available_orders[randi() % available_orders.size()]
 	repair_button.disabled = true
 	var actual_time: float = current_order.repair_time * game_state.repair_time_multiplier()
 	order_label.text = "维修中：%s（预计 %.1fs）" % [current_order.car_name, actual_time]
