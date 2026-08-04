@@ -6,6 +6,9 @@ signal worker_count_changed(new_count: int)
 signal facility_level_changed(new_level: int)
 signal day_changed(new_day: int)
 signal month_changed(new_month: int)
+signal apprentice_count_changed(new_count: int)
+signal apprentice_level_changed(new_level: int)
+signal apprentice_xp_changed(new_xp: int)
 
 # 占位数值：招人机制还没细化，这里先用一个简单的递增费用 + 固定加速效果代替
 const BASE_HIRE_COST := 100
@@ -21,12 +24,24 @@ const FACILITY_PAYOUT_BONUS := 0.15
 const DAYS_PER_MONTH := 30
 var seconds_per_day: float = 3.0
 
+# 占位数值：学徒机制还在搭骨架，招募费用/工资/考试门槛都是随手定的，之后要重新平衡
+# 学徒等级这版先当成一个共享池子的属性（不区分个体学徒），简化实现
+const BASE_APPRENTICE_HIRE_COST := 30
+const APPRENTICE_HIRE_COST_STEP := 10
+const APPRENTICE_SALARY_BASE := 15
+const APPRENTICE_SALARY_LEVEL_STEP := 5
+const APPRENTICE_XP_BASE := 50
+const APPRENTICE_XP_LEVEL_STEP := 20
+
 var money: int = 0
 var reputation: int = 0
 var worker_count: int = 0
 var facility_level: int = 0
 var day: int = 1
 var month: int = 1
+var apprentice_count: int = 0
+var apprentice_level: int = 0
+var apprentice_xp: int = 0
 
 var _day_timer: Timer
 
@@ -50,7 +65,11 @@ func _on_day_tick() -> void:
 
 
 func _on_month_end() -> void:
-	pass
+	if apprentice_count <= 0:
+		return
+	var total_salary := apprentice_count * apprentice_salary_per_head()
+	money -= total_salary
+	money_changed.emit(money)
 
 
 func add_money(amount: int) -> void:
@@ -99,3 +118,48 @@ func upgrade_facility() -> bool:
 
 func payout_multiplier() -> float:
 	return 1.0 + FACILITY_PAYOUT_BONUS * facility_level
+
+
+func next_apprentice_hire_cost() -> int:
+	return BASE_APPRENTICE_HIRE_COST + APPRENTICE_HIRE_COST_STEP * apprentice_count
+
+
+func apprentice_salary_per_head() -> int:
+	return APPRENTICE_SALARY_BASE + APPRENTICE_SALARY_LEVEL_STEP * apprentice_level
+
+
+func can_hire_apprentice() -> bool:
+	return worker_count >= 1 and money >= next_apprentice_hire_cost()
+
+
+func hire_apprentice() -> bool:
+	if not can_hire_apprentice():
+		return false
+	money -= next_apprentice_hire_cost()
+	apprentice_count += 1
+	money_changed.emit(money)
+	apprentice_count_changed.emit(apprentice_count)
+	return true
+
+
+func apprentice_xp_required() -> int:
+	return APPRENTICE_XP_BASE + APPRENTICE_XP_LEVEL_STEP * apprentice_level
+
+
+func add_apprentice_xp(amount: int) -> void:
+	apprentice_xp += amount
+	apprentice_xp_changed.emit(apprentice_xp)
+
+
+func can_take_exam() -> bool:
+	return apprentice_count > 0 and apprentice_xp >= apprentice_xp_required()
+
+
+func take_exam() -> bool:
+	if not can_take_exam():
+		return false
+	apprentice_xp -= apprentice_xp_required()
+	apprentice_level += 1
+	apprentice_xp_changed.emit(apprentice_xp)
+	apprentice_level_changed.emit(apprentice_level)
+	return true
