@@ -1,9 +1,8 @@
 extends Node2D
 
-# 占位数值：学徒实习任务先用固定值，不接车型资源，等机制成熟再细化
-const APPRENTICE_PRACTICE_TIME := 2.0
-const APPRENTICE_PRACTICE_PAYOUT := 5
-const APPRENTICE_PRACTICE_XP := 15
+# 占位数值：学徒实习复用 OrderType 车型池，报酬/经验按车型难度打折，具体系数之后再平衡
+const APPRENTICE_PAYOUT_RATE := 0.3
+const APPRENTICE_XP_PER_REPUTATION := 15
 
 const ORDER_TYPES: Array[Resource] = [
 	preload("res://resources/orders/sedan.tres"),
@@ -30,6 +29,7 @@ const ORDER_TYPES: Array[Resource] = [
 var repairing := false
 var current_order: Resource
 var practicing := false
+var current_practice_order: Resource
 
 
 func _ready() -> void:
@@ -55,11 +55,15 @@ func _ready() -> void:
 	_update_labels()
 
 
+func _get_available_orders() -> Array[Resource]:
+	return ORDER_TYPES.filter(func(o: Resource) -> bool: return game_state.reputation >= o.min_reputation)
+
+
 func _on_repair_button_pressed() -> void:
 	if repairing:
 		return
 	repairing = true
-	var available_orders := ORDER_TYPES.filter(func(o: Resource) -> bool: return game_state.reputation >= o.min_reputation)
+	var available_orders := _get_available_orders()
 	current_order = available_orders[randi() % available_orders.size()]
 	repair_button.disabled = true
 	var actual_time: float = current_order.repair_time * game_state.repair_time_multiplier()
@@ -118,13 +122,17 @@ func _on_practice_button_pressed() -> void:
 		return
 	practicing = true
 	practice_button.disabled = true
-	practice_timer.wait_time = APPRENTICE_PRACTICE_TIME
+	var available_orders := _get_available_orders()
+	current_practice_order = available_orders[randi() % available_orders.size()]
+	practice_timer.wait_time = current_practice_order.repair_time
 	practice_timer.start()
 
 
 func _on_practice_complete() -> void:
-	game_state.add_money(APPRENTICE_PRACTICE_PAYOUT)
-	game_state.add_apprentice_xp(APPRENTICE_PRACTICE_XP)
+	var payout: int = roundi(current_practice_order.payout * APPRENTICE_PAYOUT_RATE)
+	var xp: int = current_practice_order.reputation_gain * APPRENTICE_XP_PER_REPUTATION
+	game_state.add_money(payout)
+	game_state.add_apprentice_xp(xp)
 	practicing = false
 	practice_button.disabled = false
 
