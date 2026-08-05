@@ -14,6 +14,7 @@ signal apprentice_xp_changed(new_xp: int)
 const BASE_HIRE_COST := 100
 const HIRE_COST_STEP := 50
 const WORKER_SPEED_BONUS := 0.1
+const WORKER_SALARY_PER_HEAD := 20
 
 # 占位数值：设施升级机制也没细化，先用递增费用 + 固定收入加成代替，跟招人是独立的两条杠杆
 const BASE_UPGRADE_COST := 150
@@ -65,9 +66,9 @@ func _on_day_tick() -> void:
 
 
 func _on_month_end() -> void:
-	if apprentice_count <= 0:
+	var total_salary := worker_count * WORKER_SALARY_PER_HEAD + apprentice_count * apprentice_salary_per_head()
+	if total_salary <= 0:
 		return
-	var total_salary := apprentice_count * apprentice_salary_per_head()
 	money -= total_salary
 	money_changed.emit(money)
 

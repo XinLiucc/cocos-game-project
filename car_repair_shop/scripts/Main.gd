@@ -135,7 +135,7 @@ func _on_exam_button_pressed() -> void:
 
 func _update_labels() -> void:
 	money_label.text = "金钱: %d   口碑: %d" % [game_state.money, game_state.reputation]
-	worker_label.text = "工人: %d" % game_state.worker_count
+	worker_label.text = "工人: %d（月薪 %d/人）" % [game_state.worker_count, game_state.WORKER_SALARY_PER_HEAD]
 	hire_button.text = "雇佣工人 (%d)" % game_state.next_hire_cost()
 	hire_button.disabled = game_state.money < game_state.next_hire_cost()
 	facility_label.text = "工位等级: %d" % game_state.facility_level
