@@ -13,7 +13,6 @@ const ORDER_TYPES: Array[Resource] = [
 @onready var money_label: Label = $MoneyLabel
 @onready var order_label: Label = $OrderLabel
 @onready var repair_button: Button = $RepairButton
-@onready var repair_timer: Timer = $RepairTimer
 @onready var worker_label: Label = $WorkerLabel
 @onready var hire_button: Button = $HireButton
 @onready var facility_label: Label = $FacilityLabel
@@ -26,15 +25,14 @@ const ORDER_TYPES: Array[Resource] = [
 @onready var practice_timer: Timer = $PracticeTimer
 @onready var game_state: Node = get_node("/root/GameState")
 
-var repairing := false
-var current_order: Resource
+# 每个工位一个进行中任务：{"order": Resource, "timer": Timer}
+var active_jobs: Array[Dictionary] = []
+var last_result_text := "尚未完成过订单"
 var practicing := false
 var current_practice_order: Resource
 
 
 func _ready() -> void:
-	repair_timer.one_shot = true
-	repair_timer.timeout.connect(_on_repair_complete)
 	practice_timer.one_shot = true
 	practice_timer.timeout.connect(_on_practice_complete)
 	repair_button.pressed.connect(_on_repair_button_pressed)
@@ -55,21 +53,43 @@ func _ready() -> void:
 	_update_labels()
 
 
+func _process(_delta: float) -> void:
+	_update_order_label()
+
+
 func _get_available_orders() -> Array[Resource]:
 	return ORDER_TYPES.filter(func(o: Resource) -> bool: return game_state.reputation >= o.min_reputation)
 
 
+func _can_start_job() -> bool:
+	return active_jobs.size() < game_state.station_count() and active_jobs.size() < game_state.worker_count
+
+
 func _on_repair_button_pressed() -> void:
-	if repairing:
+	if not _can_start_job():
 		return
-	repairing = true
 	var available_orders := _get_available_orders()
-	current_order = available_orders[randi() % available_orders.size()]
-	repair_button.disabled = true
-	var actual_time: float = current_order.repair_time * game_state.repair_time_multiplier()
-	order_label.text = "维修中：%s（预计 %.1fs）" % [current_order.car_name, actual_time]
-	repair_timer.wait_time = actual_time
-	repair_timer.start()
+	var order: Resource = available_orders[randi() % available_orders.size()]
+	var timer := Timer.new()
+	timer.one_shot = true
+	timer.wait_time = order.repair_time
+	add_child(timer)
+	var job := {"order": order, "timer": timer}
+	timer.timeout.connect(_on_job_complete.bind(job))
+	active_jobs.append(job)
+	timer.start()
+	_update_labels()
+
+
+func _on_job_complete(job: Dictionary) -> void:
+	var order: Resource = job["order"]
+	var actual_payout: int = roundi(order.payout * game_state.payout_multiplier())
+	game_state.add_money(actual_payout)
+	game_state.add_reputation(order.reputation_gain)
+	last_result_text = "完成：%s，收入 %d，口碑 +%d" % [order.car_name, actual_payout, order.reputation_gain]
+	active_jobs.erase(job)
+	(job["timer"] as Timer).queue_free()
+	_update_labels()
 
 
 func _on_hire_button_pressed() -> void:
@@ -78,15 +98,6 @@ func _on_hire_button_pressed() -> void:
 
 func _on_upgrade_button_pressed() -> void:
 	game_state.upgrade_facility()
-
-
-func _on_repair_complete() -> void:
-	var actual_payout: int = roundi(current_order.payout * game_state.payout_multiplier())
-	game_state.add_money(actual_payout)
-	game_state.add_reputation(current_order.reputation_gain)
-	order_label.text = "完成：%s，收入 %d，口碑 +%d" % [current_order.car_name, actual_payout, current_order.reputation_gain]
-	repairing = false
-	repair_button.disabled = false
 
 
 func _on_state_changed(_new_amount: int) -> void:
@@ -141,14 +152,30 @@ func _on_exam_button_pressed() -> void:
 	game_state.take_exam()
 
 
+func _update_order_label() -> void:
+	var lines: Array[String] = []
+	lines.append("工位使用中：%d/%d" % [active_jobs.size(), game_state.station_count()])
+	for job in active_jobs:
+		var order: Resource = job["order"]
+		var timer: Timer = job["timer"]
+		lines.append("- %s 剩余 %.1fs" % [order.car_name, timer.time_left])
+	lines.append("最近完成：" + last_result_text)
+	order_label.text = "\n".join(lines)
+
+
 func _update_labels() -> void:
 	money_label.text = "金钱: %d   口碑: %d" % [game_state.money, game_state.reputation]
-	worker_label.text = "工人: %d（月薪 %d/人）" % [game_state.worker_count, game_state.WORKER_SALARY_PER_HEAD]
+	worker_label.text = "工人: %d（空闲 %d，月薪 %d/人）" % [
+		game_state.worker_count,
+		game_state.worker_count - active_jobs.size(),
+		game_state.WORKER_SALARY_PER_HEAD,
+	]
 	hire_button.text = "雇佣工人 (%d)" % game_state.next_hire_cost()
 	hire_button.disabled = game_state.money < game_state.next_hire_cost()
-	facility_label.text = "工位等级: %d" % game_state.facility_level
+	facility_label.text = "设施等级: %d（工位数 %d）" % [game_state.facility_level, game_state.station_count()]
 	upgrade_button.text = "升级工位 (%d)" % game_state.next_upgrade_cost()
 	upgrade_button.disabled = game_state.money < game_state.next_upgrade_cost()
+	repair_button.disabled = not _can_start_job()
 	day_label.text = "第%d月 第%d天" % [game_state.month, game_state.day]
 	apprentice_label.text = "学徒: %d（等级 %d, 经验 %d/%d, 月薪 %d/人）" % [
 		game_state.apprentice_count,

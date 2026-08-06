@@ -26,9 +26,6 @@ offset_right = 180.0
 offset_bottom = 180.0
 text = "接单修车"
 
-[node name="RepairTimer" type="Timer" parent="." unique_id=984195295]
-wait_time = 0.016
-
 [node name="WorkerLabel" type="Label" parent="." unique_id=622888616]
 offset_left = 60.0
 offset_top = 220.0
