@@ -10,16 +10,19 @@ signal apprentice_count_changed(new_count: int)
 signal apprentice_level_changed(new_level: int)
 signal apprentice_xp_changed(new_xp: int)
 
-# 占位数值：招人机制还没细化，这里先用一个简单的递增费用 + 固定加速效果代替
+# 占位数值：招人机制还没细化，这里先用一个简单的递增费用代替
 const BASE_HIRE_COST := 100
 const HIRE_COST_STEP := 50
-const WORKER_SPEED_BONUS := 0.1
 const WORKER_SALARY_PER_HEAD := 20
 
-# 占位数值：设施升级机制也没细化，先用递增费用 + 固定收入加成代替，跟招人是独立的两条杠杆
+# 占位数值：设施升级机制也没细化，先用递增费用 + 固定收入加成代替
+# 2026-08-06：设施升级还决定"工位数"（同时能干活的人数上限），worker_count 只是员工总数，
+# 两者解耦——员工可以比工位多（备用），但同时干活人数被工位卡住
 const BASE_UPGRADE_COST := 150
 const UPGRADE_COST_STEP := 100
 const FACILITY_PAYOUT_BONUS := 0.15
+const BASE_STATION_COUNT := 1
+const STATION_PER_FACILITY_LEVEL := 1
 
 # 占位数值：一天等于多少秒，开发阶段调短方便测试，正式数值以后再定
 const DAYS_PER_MONTH := 30
@@ -34,7 +37,9 @@ const APPRENTICE_SALARY_LEVEL_STEP := 5
 const APPRENTICE_XP_BASE := 50
 const APPRENTICE_XP_LEVEL_STEP := 20
 
-var money: int = 0
+const STARTING_MONEY := 100
+
+var money: int = STARTING_MONEY
 var reputation: int = 0
 var worker_count: int = 0
 var facility_level: int = 0
@@ -98,10 +103,6 @@ func hire_worker() -> bool:
 	return true
 
 
-func repair_time_multiplier() -> float:
-	return 1.0 / (1.0 + WORKER_SPEED_BONUS * worker_count)
-
-
 func next_upgrade_cost() -> int:
 	return BASE_UPGRADE_COST + UPGRADE_COST_STEP * facility_level
 
@@ -119,6 +120,10 @@ func upgrade_facility() -> bool:
 
 func payout_multiplier() -> float:
 	return 1.0 + FACILITY_PAYOUT_BONUS * facility_level
+
+
+func station_count() -> int:
+	return BASE_STATION_COUNT + STATION_PER_FACILITY_LEVEL * facility_level
 
 
 func next_apprentice_hire_cost() -> int:
