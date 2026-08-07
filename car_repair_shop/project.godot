@@ -18,3 +18,8 @@ config/features=PackedStringArray("4.7", "Forward Plus")
 
 GameState="*res://scripts/GameState.gd"
 McpInteractionServer="*res://scripts/mcp_interaction_server.gd"
+
+
+[display]
+
+window/size/viewport_height=800

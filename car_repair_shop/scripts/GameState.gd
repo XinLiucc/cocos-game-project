@@ -84,7 +84,7 @@ func add_money(amount: int) -> void:
 
 
 func add_reputation(amount: int) -> void:
-	reputation += amount
+	reputation = max(0, reputation + amount)
 	reputation_changed.emit(reputation)
 
 
