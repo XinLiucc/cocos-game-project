@@ -16,29 +16,26 @@ const ORDER_TYPES: Array[Resource] = [
 	preload("res://resources/orders/sports_car.tres"),
 ]
 
-@onready var money_label: Label = $MoneyLabel
-@onready var order_label: Label = $OrderLabel
-@onready var repair_button: Button = $RepairButton
-@onready var worker_label: Label = $WorkerLabel
-@onready var hire_button: Button = $HireButton
-@onready var facility_label: Label = $FacilityLabel
-@onready var upgrade_button: Button = $UpgradeButton
-@onready var day_label: Label = $DayLabel
-@onready var apprentice_label: Label = $ApprenticeLabel
-@onready var hire_apprentice_button: Button = $HireApprenticeButton
-@onready var practice_button: Button = $PracticeButton
-@onready var exam_button: Button = $ExamButton
-@onready var practice_timer: Timer = $PracticeTimer
+@onready var money_label: Label = $UI/MoneyLabel
+@onready var order_label: Label = $UI/OrderLabel
+@onready var repair_button: Button = $UI/RepairButton
+@onready var facility_label: Label = $UI/FacilityRow/FacilityLabel
+@onready var upgrade_button: Button = $UI/FacilityRow/UpgradeButton
+@onready var day_label: Label = $UI/DayLabel
+@onready var hire_button: Button = $UI/WorkerHeaderRow/HireButton
+@onready var worker_list_container: VBoxContainer = $UI/WorkerListContainer
+@onready var hire_apprentice_button: Button = $UI/ApprenticeHeaderRow/HireApprenticeButton
+@onready var apprentice_list_container: VBoxContainer = $UI/ApprenticeListContainer
 @onready var game_state: Node = get_node("/root/GameState")
 
-# 每个工位一个进行中任务：{"order": Resource, "timer": Timer}
+# 每个工位一个进行中任务：{"order": Resource, "timer": Timer, "employee_id": int}
 var active_jobs: Array[Dictionary] = []
+# 每个学徒最多一个进行中实习：{"order": Resource, "timer": Timer, "employee_id": int}
+var active_practices: Array[Dictionary] = []
 # 待处理订单队列：{"order": Resource, "timer": Timer}，timer 到期即流失
 var pending_orders: Array[Dictionary] = []
 var order_spawn_timer: Timer
 var last_result_text := "尚未完成过订单"
-var practicing := false
-var current_practice_order: Resource
 
 
 func _ready() -> void:
@@ -47,24 +44,17 @@ func _ready() -> void:
 	order_spawn_timer.autostart = true
 	order_spawn_timer.timeout.connect(_on_order_spawn_timer_timeout)
 	add_child(order_spawn_timer)
-	practice_timer.one_shot = true
-	practice_timer.timeout.connect(_on_practice_complete)
 	repair_button.pressed.connect(_on_repair_button_pressed)
 	hire_button.pressed.connect(_on_hire_button_pressed)
 	upgrade_button.pressed.connect(_on_upgrade_button_pressed)
 	hire_apprentice_button.pressed.connect(_on_hire_apprentice_button_pressed)
-	practice_button.pressed.connect(_on_practice_button_pressed)
-	exam_button.pressed.connect(_on_exam_button_pressed)
-	game_state.money_changed.connect(_on_state_changed)
-	game_state.reputation_changed.connect(_on_state_changed)
-	game_state.worker_count_changed.connect(_on_worker_count_changed)
-	game_state.facility_level_changed.connect(_on_facility_level_changed)
-	game_state.day_changed.connect(_on_day_changed)
-	game_state.month_changed.connect(_on_month_changed)
-	game_state.apprentice_count_changed.connect(_on_apprentice_changed)
-	game_state.apprentice_level_changed.connect(_on_apprentice_changed)
-	game_state.apprentice_xp_changed.connect(_on_apprentice_changed)
-	_update_labels()
+	game_state.money_changed.connect(_on_int_state_changed)
+	game_state.reputation_changed.connect(_on_int_state_changed)
+	game_state.facility_level_changed.connect(_on_int_state_changed)
+	game_state.day_changed.connect(_on_int_state_changed)
+	game_state.month_changed.connect(_on_int_state_changed)
+	game_state.employees_changed.connect(_on_employees_changed)
+	_update_all()
 
 
 func _process(_delta: float) -> void:
@@ -76,7 +66,14 @@ func _get_available_orders() -> Array[Resource]:
 
 
 func _can_start_job() -> bool:
-	return active_jobs.size() < game_state.station_count() and active_jobs.size() < game_state.worker_count
+	return active_jobs.size() < game_state.station_count() and not game_state.idle_workers().is_empty()
+
+
+func _find_by_employee(jobs: Array[Dictionary], employee_id: int) -> Dictionary:
+	for j in jobs:
+		if j["employee_id"] == employee_id:
+			return j
+	return {}
 
 
 func _on_order_spawn_timer_timeout() -> void:
@@ -92,7 +89,7 @@ func _on_order_spawn_timer_timeout() -> void:
 	timer.timeout.connect(_on_pending_order_expired.bind(pending))
 	pending_orders.append(pending)
 	timer.start()
-	_update_labels()
+	_update_all()
 
 
 func _on_pending_order_expired(pending: Dictionary) -> void:
@@ -101,12 +98,13 @@ func _on_pending_order_expired(pending: Dictionary) -> void:
 	(pending["timer"] as Timer).queue_free()
 	game_state.add_reputation(-REPUTATION_LOSS_ON_EXPIRE)
 	last_result_text = "流失：%s 超时未处理，口碑 -%d" % [order.car_name, REPUTATION_LOSS_ON_EXPIRE]
-	_update_labels()
+	_update_all()
 
 
 func _on_repair_button_pressed() -> void:
 	if not _can_start_job() or pending_orders.is_empty():
 		return
+	var worker: Dictionary = game_state.idle_workers()[0]
 	var pending: Dictionary = pending_orders[0]
 	pending_orders.erase(pending)
 	(pending["timer"] as Timer).queue_free()
@@ -115,11 +113,12 @@ func _on_repair_button_pressed() -> void:
 	timer.one_shot = true
 	timer.wait_time = order.repair_time
 	add_child(timer)
-	var job := {"order": order, "timer": timer}
+	var job := {"order": order, "timer": timer, "employee_id": worker["id"]}
 	timer.timeout.connect(_on_job_complete.bind(job))
 	active_jobs.append(job)
+	game_state.set_employee_busy(worker["id"], true)
 	timer.start()
-	_update_labels()
+	_update_all()
 
 
 func _on_job_complete(job: Dictionary) -> void:
@@ -130,7 +129,8 @@ func _on_job_complete(job: Dictionary) -> void:
 	last_result_text = "完成：%s，收入 %d，口碑 +%d" % [order.car_name, actual_payout, order.reputation_gain]
 	active_jobs.erase(job)
 	(job["timer"] as Timer).queue_free()
-	_update_labels()
+	game_state.set_employee_busy(job["employee_id"], false)
+	_update_all()
 
 
 func _on_hire_button_pressed() -> void:
@@ -141,56 +141,50 @@ func _on_upgrade_button_pressed() -> void:
 	game_state.upgrade_facility()
 
 
-func _on_state_changed(_new_amount: int) -> void:
-	_update_labels()
-
-
-func _on_worker_count_changed(_new_count: int) -> void:
-	_update_labels()
-
-
-func _on_facility_level_changed(_new_level: int) -> void:
-	_update_labels()
-
-
-func _on_day_changed(_new_day: int) -> void:
-	_update_labels()
-
-
-func _on_month_changed(_new_month: int) -> void:
-	_update_labels()
-
-
-func _on_apprentice_changed(_value: int) -> void:
-	_update_labels()
-
-
 func _on_hire_apprentice_button_pressed() -> void:
 	game_state.hire_apprentice()
 
 
-func _on_practice_button_pressed() -> void:
-	if practicing or game_state.apprentice_count <= 0:
+func _on_practice_button_pressed(employee_id: int) -> void:
+	var e: Dictionary = game_state.get_employee(employee_id)
+	if e.is_empty() or e["busy"]:
 		return
-	practicing = true
-	practice_button.disabled = true
 	var available_orders := _get_available_orders()
-	current_practice_order = available_orders[randi() % available_orders.size()]
-	practice_timer.wait_time = current_practice_order.repair_time
-	practice_timer.start()
+	var order: Resource = available_orders[randi() % available_orders.size()]
+	var timer := Timer.new()
+	timer.one_shot = true
+	timer.wait_time = order.repair_time
+	add_child(timer)
+	var practice := {"order": order, "timer": timer, "employee_id": employee_id}
+	timer.timeout.connect(_on_practice_complete.bind(practice))
+	active_practices.append(practice)
+	game_state.set_employee_busy(employee_id, true)
+	timer.start()
+	_update_all()
 
 
-func _on_practice_complete() -> void:
-	var payout: int = roundi(current_practice_order.payout * APPRENTICE_PAYOUT_RATE)
-	var xp: int = current_practice_order.reputation_gain * APPRENTICE_XP_PER_REPUTATION
+func _on_practice_complete(practice: Dictionary) -> void:
+	var order: Resource = practice["order"]
+	var payout: int = roundi(order.payout * APPRENTICE_PAYOUT_RATE)
+	var xp: int = order.reputation_gain * APPRENTICE_XP_PER_REPUTATION
 	game_state.add_money(payout)
-	game_state.add_apprentice_xp(xp)
-	practicing = false
-	practice_button.disabled = false
+	game_state.add_apprentice_xp(practice["employee_id"], xp)
+	active_practices.erase(practice)
+	(practice["timer"] as Timer).queue_free()
+	game_state.set_employee_busy(practice["employee_id"], false)
+	_update_all()
 
 
-func _on_exam_button_pressed() -> void:
-	game_state.take_exam()
+func _on_exam_button_pressed(employee_id: int) -> void:
+	game_state.take_exam(employee_id)
+
+
+func _on_int_state_changed(_value: int) -> void:
+	_update_all()
+
+
+func _on_employees_changed() -> void:
+	_update_all()
 
 
 func _update_order_label() -> void:
@@ -209,13 +203,66 @@ func _update_order_label() -> void:
 	order_label.text = "\n".join(lines)
 
 
+func _update_worker_list() -> void:
+	for child in worker_list_container.get_children():
+		child.queue_free()
+	for w in game_state.workers():
+		var row := Label.new()
+		if w["busy"]:
+			var job := _find_by_employee(active_jobs, w["id"])
+			if not job.is_empty():
+				var order: Resource = job["order"]
+				row.text = "工人 #%d：工作中（%s）" % [w["id"], order.car_name]
+			else:
+				row.text = "工人 #%d：工作中" % w["id"]
+		else:
+			row.text = "工人 #%d：空闲" % w["id"]
+		worker_list_container.add_child(row)
+
+
+func _update_apprentice_list() -> void:
+	for child in apprentice_list_container.get_children():
+		child.queue_free()
+	for a in game_state.apprentices():
+		var row := HBoxContainer.new()
+
+		var status_text := "空闲"
+		if a["busy"]:
+			var practice := _find_by_employee(active_practices, a["id"])
+			if not practice.is_empty():
+				var order: Resource = practice["order"]
+				status_text = "实习中（%s）" % order.car_name
+			else:
+				status_text = "实习中"
+
+		var status_label := Label.new()
+		status_label.text = "学徒 #%d：Lv%d，经验 %d/%d，月薪 %d，%s" % [
+			a["id"],
+			a["level"],
+			a["xp"],
+			game_state.apprentice_xp_required_for_level(a["level"]),
+			game_state.apprentice_salary_for_level(a["level"]),
+			status_text,
+		]
+		row.add_child(status_label)
+
+		var practice_button := Button.new()
+		practice_button.text = "实习"
+		practice_button.disabled = a["busy"]
+		practice_button.pressed.connect(_on_practice_button_pressed.bind(a["id"]))
+		row.add_child(practice_button)
+
+		var exam_button := Button.new()
+		exam_button.text = "考试"
+		exam_button.disabled = not game_state.can_take_exam(a["id"])
+		exam_button.pressed.connect(_on_exam_button_pressed.bind(a["id"]))
+		row.add_child(exam_button)
+
+		apprentice_list_container.add_child(row)
+
+
 func _update_labels() -> void:
 	money_label.text = "金钱: %d   口碑: %d" % [game_state.money, game_state.reputation]
-	worker_label.text = "工人: %d（空闲 %d，月薪 %d/人）" % [
-		game_state.worker_count,
-		game_state.worker_count - active_jobs.size(),
-		game_state.WORKER_SALARY_PER_HEAD,
-	]
 	hire_button.text = "雇佣工人 (%d)" % game_state.next_hire_cost()
 	hire_button.disabled = game_state.money < game_state.next_hire_cost()
 	facility_label.text = "设施等级: %d（工位数 %d）" % [game_state.facility_level, game_state.station_count()]
@@ -223,14 +270,11 @@ func _update_labels() -> void:
 	upgrade_button.disabled = game_state.money < game_state.next_upgrade_cost()
 	repair_button.disabled = not _can_start_job() or pending_orders.is_empty()
 	day_label.text = "第%d月 第%d天" % [game_state.month, game_state.day]
-	apprentice_label.text = "学徒: %d（等级 %d, 经验 %d/%d, 月薪 %d/人）" % [
-		game_state.apprentice_count,
-		game_state.apprentice_level,
-		game_state.apprentice_xp,
-		game_state.apprentice_xp_required(),
-		game_state.apprentice_salary_per_head(),
-	]
 	hire_apprentice_button.text = "招学徒 (%d)" % game_state.next_apprentice_hire_cost()
 	hire_apprentice_button.disabled = not game_state.can_hire_apprentice()
-	practice_button.disabled = practicing or game_state.apprentice_count <= 0
-	exam_button.disabled = not game_state.can_take_exam()
+
+
+func _update_all() -> void:
+	_update_labels()
+	_update_worker_list()
+	_update_apprentice_list()

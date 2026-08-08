@@ -2,13 +2,10 @@ extends Node
 
 signal money_changed(new_amount: int)
 signal reputation_changed(new_amount: int)
-signal worker_count_changed(new_count: int)
 signal facility_level_changed(new_level: int)
 signal day_changed(new_day: int)
 signal month_changed(new_month: int)
-signal apprentice_count_changed(new_count: int)
-signal apprentice_level_changed(new_level: int)
-signal apprentice_xp_changed(new_xp: int)
+signal employees_changed()
 
 # 占位数值：招人机制还没细化，这里先用一个简单的递增费用代替
 const BASE_HIRE_COST := 100
@@ -29,7 +26,6 @@ const DAYS_PER_MONTH := 30
 var seconds_per_day: float = 3.0
 
 # 占位数值：学徒机制还在搭骨架，招募费用/工资/考试门槛都是随手定的，之后要重新平衡
-# 学徒等级这版先当成一个共享池子的属性（不区分个体学徒），简化实现
 const BASE_APPRENTICE_HIRE_COST := 30
 const APPRENTICE_HIRE_COST_STEP := 10
 const APPRENTICE_SALARY_BASE := 15
@@ -41,13 +37,14 @@ const STARTING_MONEY := 100
 
 var money: int = STARTING_MONEY
 var reputation: int = 0
-var worker_count: int = 0
 var facility_level: int = 0
 var day: int = 1
 var month: int = 1
-var apprentice_count: int = 0
-var apprentice_level: int = 0
-var apprentice_xp: int = 0
+
+# 每个工人/学徒都是独立个体，不是数字：{id, kind: "worker"|"apprentice", busy, level, xp}
+# level/xp 只对学徒有意义，工人恒为 0
+var employees: Array[Dictionary] = []
+var _next_employee_id: int = 1
 
 var _day_timer: Timer
 
@@ -71,7 +68,12 @@ func _on_day_tick() -> void:
 
 
 func _on_month_end() -> void:
-	var total_salary := worker_count * WORKER_SALARY_PER_HEAD + apprentice_count * apprentice_salary_per_head()
+	var total_salary := 0
+	for e in employees:
+		if e["kind"] == "worker":
+			total_salary += WORKER_SALARY_PER_HEAD
+		else:
+			total_salary += apprentice_salary_for_level(e["level"])
 	if total_salary <= 0:
 		return
 	money -= total_salary
@@ -88,8 +90,43 @@ func add_reputation(amount: int) -> void:
 	reputation_changed.emit(reputation)
 
 
+func workers() -> Array[Dictionary]:
+	return employees.filter(func(e: Dictionary) -> bool: return e["kind"] == "worker")
+
+
+func apprentices() -> Array[Dictionary]:
+	return employees.filter(func(e: Dictionary) -> bool: return e["kind"] == "apprentice")
+
+
+func worker_count() -> int:
+	return workers().size()
+
+
+func apprentice_count() -> int:
+	return apprentices().size()
+
+
+func idle_workers() -> Array[Dictionary]:
+	return workers().filter(func(e: Dictionary) -> bool: return not e["busy"])
+
+
+func get_employee(id: int) -> Dictionary:
+	for e in employees:
+		if e["id"] == id:
+			return e
+	return {}
+
+
+func set_employee_busy(id: int, busy: bool) -> void:
+	var e := get_employee(id)
+	if e.is_empty():
+		return
+	e["busy"] = busy
+	employees_changed.emit()
+
+
 func next_hire_cost() -> int:
-	return BASE_HIRE_COST + HIRE_COST_STEP * worker_count
+	return BASE_HIRE_COST + HIRE_COST_STEP * worker_count()
 
 
 func hire_worker() -> bool:
@@ -97,9 +134,10 @@ func hire_worker() -> bool:
 	if money < cost:
 		return false
 	money -= cost
-	worker_count += 1
+	employees.append({"id": _next_employee_id, "kind": "worker", "busy": false, "level": 0, "xp": 0})
+	_next_employee_id += 1
 	money_changed.emit(money)
-	worker_count_changed.emit(worker_count)
+	employees_changed.emit()
 	return true
 
 
@@ -127,45 +165,52 @@ func station_count() -> int:
 
 
 func next_apprentice_hire_cost() -> int:
-	return BASE_APPRENTICE_HIRE_COST + APPRENTICE_HIRE_COST_STEP * apprentice_count
+	return BASE_APPRENTICE_HIRE_COST + APPRENTICE_HIRE_COST_STEP * apprentice_count()
 
 
-func apprentice_salary_per_head() -> int:
-	return APPRENTICE_SALARY_BASE + APPRENTICE_SALARY_LEVEL_STEP * apprentice_level
+func apprentice_salary_for_level(level: int) -> int:
+	return APPRENTICE_SALARY_BASE + APPRENTICE_SALARY_LEVEL_STEP * level
 
 
 func can_hire_apprentice() -> bool:
-	return worker_count >= 1 and money >= next_apprentice_hire_cost()
+	return worker_count() >= 1 and money >= next_apprentice_hire_cost()
 
 
 func hire_apprentice() -> bool:
 	if not can_hire_apprentice():
 		return false
 	money -= next_apprentice_hire_cost()
-	apprentice_count += 1
+	employees.append({"id": _next_employee_id, "kind": "apprentice", "busy": false, "level": 0, "xp": 0})
+	_next_employee_id += 1
 	money_changed.emit(money)
-	apprentice_count_changed.emit(apprentice_count)
+	employees_changed.emit()
 	return true
 
 
-func apprentice_xp_required() -> int:
-	return APPRENTICE_XP_BASE + APPRENTICE_XP_LEVEL_STEP * apprentice_level
+func apprentice_xp_required_for_level(level: int) -> int:
+	return APPRENTICE_XP_BASE + APPRENTICE_XP_LEVEL_STEP * level
 
 
-func add_apprentice_xp(amount: int) -> void:
-	apprentice_xp += amount
-	apprentice_xp_changed.emit(apprentice_xp)
+func add_apprentice_xp(id: int, amount: int) -> void:
+	var e := get_employee(id)
+	if e.is_empty():
+		return
+	e["xp"] += amount
+	employees_changed.emit()
 
 
-func can_take_exam() -> bool:
-	return apprentice_count > 0 and apprentice_xp >= apprentice_xp_required()
-
-
-func take_exam() -> bool:
-	if not can_take_exam():
+func can_take_exam(id: int) -> bool:
+	var e := get_employee(id)
+	if e.is_empty() or e["kind"] != "apprentice":
 		return false
-	apprentice_xp -= apprentice_xp_required()
-	apprentice_level += 1
-	apprentice_xp_changed.emit(apprentice_xp)
-	apprentice_level_changed.emit(apprentice_level)
+	return e["xp"] >= apprentice_xp_required_for_level(e["level"])
+
+
+func take_exam(id: int) -> bool:
+	if not can_take_exam(id):
+		return false
+	var e := get_employee(id)
+	e["xp"] -= apprentice_xp_required_for_level(e["level"])
+	e["level"] += 1
+	employees_changed.emit()
 	return true

@@ -5,89 +5,64 @@
 [node name="root" type="Node2D" unique_id=461627710]
 script = ExtResource("1_elqb8")
 
-[node name="MoneyLabel" type="Label" parent="." unique_id=677769128]
+[node name="UI" type="VBoxContainer" parent="." unique_id=2115017723]
 offset_left = 60.0
-offset_top = 60.0
+offset_top = 40.0
 offset_right = 60.0
-offset_bottom = 60.0
+offset_bottom = 40.0
+
+[node name="MoneyLabel" type="Label" parent="UI" unique_id=677769128]
+layout_mode = 2
 text = "金钱: 0   口碑: 0"
 
-[node name="OrderLabel" type="Label" parent="." unique_id=484800525]
-offset_left = 60.0
-offset_top = 100.0
-offset_right = 60.0
-offset_bottom = 100.0
-text = "等待接单"
-
-[node name="RepairButton" type="Button" parent="." unique_id=810011311]
-offset_left = 60.0
-offset_top = 320.0
-offset_right = 180.0
-offset_bottom = 360.0
-text = "接单修车"
-
-[node name="WorkerLabel" type="Label" parent="." unique_id=622888616]
-offset_left = 60.0
-offset_top = 400.0
-offset_right = 60.0
-offset_bottom = 400.0
-text = "工人: 0"
-
-[node name="HireButton" type="Button" parent="." unique_id=1833872224]
-offset_left = 60.0
-offset_top = 440.0
-offset_right = 220.0
-offset_bottom = 480.0
-text = "雇佣工人 (100)"
-
-[node name="FacilityLabel" type="Label" parent="." unique_id=228318238]
-offset_left = 60.0
-offset_top = 520.0
-offset_right = 60.0
-offset_bottom = 520.0
-text = "工位等级: 0"
-
-[node name="UpgradeButton" type="Button" parent="." unique_id=1024340173]
-offset_left = 60.0
-offset_top = 560.0
-offset_right = 220.0
-offset_bottom = 600.0
-text = "升级工位 (150)"
-
-[node name="DayLabel" type="Label" parent="." unique_id=892911621]
-offset_left = 320.0
-offset_top = 60.0
-offset_right = 320.0
-offset_bottom = 60.0
+[node name="DayLabel" type="Label" parent="UI" unique_id=892911621]
+layout_mode = 2
 text = "第1月 第1天"
 
-[node name="ApprenticeLabel" type="Label" parent="." unique_id=1661710635]
-offset_left = 60.0
-offset_top = 640.0
-offset_right = 60.0
-offset_bottom = 640.0
-text = "学徒: 0（等级 0, 经验 0/50）"
+[node name="FacilityRow" type="HBoxContainer" parent="UI" unique_id=1702361642]
+layout_mode = 2
 
-[node name="HireApprenticeButton" type="Button" parent="." unique_id=1223440591]
-offset_left = 60.0
-offset_top = 680.0
-offset_right = 220.0
-offset_bottom = 720.0
+[node name="FacilityLabel" type="Label" parent="UI/FacilityRow" unique_id=228318238]
+layout_mode = 2
+text = "工位等级: 0"
+
+[node name="UpgradeButton" type="Button" parent="UI/FacilityRow" unique_id=1024340173]
+layout_mode = 2
+text = "升级工位 (150)"
+
+[node name="WorkerHeaderRow" type="HBoxContainer" parent="UI" unique_id=391308646]
+layout_mode = 2
+
+[node name="WorkerHeaderLabel" type="Label" parent="UI/WorkerHeaderRow" unique_id=1422346824]
+layout_mode = 2
+text = "工人"
+
+[node name="HireButton" type="Button" parent="UI/WorkerHeaderRow" unique_id=1833872224]
+layout_mode = 2
+text = "雇佣工人 (100)"
+
+[node name="WorkerListContainer" type="VBoxContainer" parent="UI" unique_id=377368337]
+layout_mode = 2
+
+[node name="ApprenticeHeaderRow" type="HBoxContainer" parent="UI" unique_id=44309608]
+layout_mode = 2
+
+[node name="ApprenticeHeaderLabel" type="Label" parent="UI/ApprenticeHeaderRow" unique_id=236742885]
+layout_mode = 2
+text = "学徒"
+
+[node name="HireApprenticeButton" type="Button" parent="UI/ApprenticeHeaderRow" unique_id=1223440591]
+layout_mode = 2
 text = "招学徒 (30)"
 
-[node name="PracticeButton" type="Button" parent="." unique_id=1658720273]
-offset_left = 240.0
-offset_top = 680.0
-offset_right = 360.0
-offset_bottom = 720.0
-text = "学徒实习"
+[node name="ApprenticeListContainer" type="VBoxContainer" parent="UI" unique_id=1219550046]
+layout_mode = 2
 
-[node name="ExamButton" type="Button" parent="." unique_id=1523375854]
-offset_left = 380.0
-offset_top = 680.0
-offset_right = 460.0
-offset_bottom = 720.0
-text = "考试"
+[node name="RepairButton" type="Button" parent="UI" unique_id=810011311]
+layout_mode = 2
+text = "接单修车"
 
-[node name="PracticeTimer" type="Timer" parent="." unique_id=293305577]
-wait_time = 0.016
+[node name="OrderLabel" type="Label" parent="UI" unique_id=484800525]
+layout_mode = 2
+text = "等待接单"
+autowrap_mode = 3
