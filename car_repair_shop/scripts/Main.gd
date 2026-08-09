@@ -203,20 +203,26 @@ func _update_order_label() -> void:
 	order_label.text = "\n".join(lines)
 
 
+func _format_attributes(attrs: Dictionary) -> String:
+	return "机%d 电%d 钣%d 细%d 沟%d" % [
+		attrs["mechanical"], attrs["electrical"], attrs["bodywork"], attrs["precision"], attrs["communication"],
+	]
+
+
 func _update_worker_list() -> void:
 	for child in worker_list_container.get_children():
 		child.queue_free()
 	for w in game_state.workers():
 		var row := Label.new()
+		var status_text := "空闲"
 		if w["busy"]:
 			var job := _find_by_employee(active_jobs, w["id"])
 			if not job.is_empty():
 				var order: Resource = job["order"]
-				row.text = "工人 #%d：工作中（%s）" % [w["id"], order.car_name]
+				status_text = "工作中（%s）" % order.car_name
 			else:
-				row.text = "工人 #%d：工作中" % w["id"]
-		else:
-			row.text = "工人 #%d：空闲" % w["id"]
+				status_text = "工作中"
+		row.text = "工人 #%d：%s [%s]" % [w["id"], status_text, _format_attributes(w["attributes"])]
 		worker_list_container.add_child(row)
 
 
@@ -236,13 +242,14 @@ func _update_apprentice_list() -> void:
 				status_text = "实习中"
 
 		var status_label := Label.new()
-		status_label.text = "学徒 #%d：Lv%d，经验 %d/%d，月薪 %d，%s" % [
+		status_label.text = "学徒 #%d：Lv%d，经验 %d/%d，月薪 %d，%s [%s]" % [
 			a["id"],
 			a["level"],
 			a["xp"],
 			game_state.apprentice_xp_required_for_level(a["level"]),
 			game_state.apprentice_salary_for_level(a["level"]),
 			status_text,
+			_format_attributes(a["attributes"]),
 		]
 		row.add_child(status_label)
 

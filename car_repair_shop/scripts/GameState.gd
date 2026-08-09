@@ -33,6 +33,12 @@ const APPRENTICE_SALARY_LEVEL_STEP := 5
 const APPRENTICE_XP_BASE := 50
 const APPRENTICE_XP_LEVEL_STEP := 20
 
+# 2026-08-09：员工属性系统骨架。5 项属性（机械/电气/钣喷偏硬技能，细心/沟通偏软技能），
+# 招募时随机生成基础值；成长曲线（训练/带教）、考试通过率、车型属性权重都还没做，占位范围随手定
+const ATTRIBUTE_KEYS: Array[String] = ["mechanical", "electrical", "bodywork", "precision", "communication"]
+const ATTRIBUTE_BASE_MIN := 5
+const ATTRIBUTE_BASE_MAX := 20
+
 const STARTING_MONEY := 100
 
 var money: int = STARTING_MONEY
@@ -90,6 +96,13 @@ func add_reputation(amount: int) -> void:
 	reputation_changed.emit(reputation)
 
 
+func _random_base_attributes() -> Dictionary:
+	var attrs := {}
+	for key in ATTRIBUTE_KEYS:
+		attrs[key] = randi_range(ATTRIBUTE_BASE_MIN, ATTRIBUTE_BASE_MAX)
+	return attrs
+
+
 func workers() -> Array[Dictionary]:
 	return employees.filter(func(e: Dictionary) -> bool: return e["kind"] == "worker")
 
@@ -134,7 +147,10 @@ func hire_worker() -> bool:
 	if money < cost:
 		return false
 	money -= cost
-	employees.append({"id": _next_employee_id, "kind": "worker", "busy": false, "level": 0, "xp": 0})
+	employees.append({
+		"id": _next_employee_id, "kind": "worker", "busy": false, "level": 0, "xp": 0,
+		"attributes": _random_base_attributes(),
+	})
 	_next_employee_id += 1
 	money_changed.emit(money)
 	employees_changed.emit()
@@ -180,7 +196,10 @@ func hire_apprentice() -> bool:
 	if not can_hire_apprentice():
 		return false
 	money -= next_apprentice_hire_cost()
-	employees.append({"id": _next_employee_id, "kind": "apprentice", "busy": false, "level": 0, "xp": 0})
+	employees.append({
+		"id": _next_employee_id, "kind": "apprentice", "busy": false, "level": 0, "xp": 0,
+		"attributes": _random_base_attributes(),
+	})
 	_next_employee_id += 1
 	money_changed.emit(money)
 	employees_changed.emit()
