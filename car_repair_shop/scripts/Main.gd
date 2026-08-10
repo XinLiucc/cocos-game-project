@@ -16,6 +16,14 @@ const ORDER_TYPES: Array[Resource] = [
 	preload("res://resources/orders/sports_car.tres"),
 ]
 
+const TRAINING_COURSES: Array[Resource] = [
+	preload("res://resources/courses/mechanical.tres"),
+	preload("res://resources/courses/electrical.tres"),
+	preload("res://resources/courses/bodywork.tres"),
+	preload("res://resources/courses/precision.tres"),
+	preload("res://resources/courses/communication.tres"),
+]
+
 @onready var money_label: Label = $UI/MoneyLabel
 @onready var order_label: Label = $UI/OrderLabel
 @onready var repair_button: Button = $UI/RepairButton
@@ -32,6 +40,8 @@ const ORDER_TYPES: Array[Resource] = [
 var active_jobs: Array[Dictionary] = []
 # 每个学徒最多一个进行中实习：{"order": Resource, "timer": Timer, "employee_id": int}
 var active_practices: Array[Dictionary] = []
+# 每个学徒最多一个进行中训练：{"course": Resource, "timer": Timer, "employee_id": int}
+var active_trainings: Array[Dictionary] = []
 # 待处理订单队列：{"order": Resource, "timer": Timer}，timer 到期即流失
 var pending_orders: Array[Dictionary] = []
 var order_spawn_timer: Timer
@@ -179,6 +189,28 @@ func _on_exam_button_pressed(employee_id: int) -> void:
 	game_state.take_exam(employee_id)
 
 
+func _on_train_button_pressed(employee_id: int, course: Resource) -> void:
+	if not game_state.start_training(employee_id, course):
+		return
+	var timer := Timer.new()
+	timer.one_shot = true
+	timer.wait_time = course.duration
+	add_child(timer)
+	var training := {"course": course, "timer": timer, "employee_id": employee_id}
+	timer.timeout.connect(_on_training_complete.bind(training))
+	active_trainings.append(training)
+	timer.start()
+	_update_all()
+
+
+func _on_training_complete(training: Dictionary) -> void:
+	var course: Resource = training["course"]
+	game_state.complete_training(training["employee_id"], course)
+	active_trainings.erase(training)
+	(training["timer"] as Timer).queue_free()
+	_update_all()
+
+
 func _on_int_state_changed(_value: int) -> void:
 	_update_all()
 
@@ -235,11 +267,15 @@ func _update_apprentice_list() -> void:
 		var status_text := "空闲"
 		if a["busy"]:
 			var practice := _find_by_employee(active_practices, a["id"])
+			var training := _find_by_employee(active_trainings, a["id"])
 			if not practice.is_empty():
 				var order: Resource = practice["order"]
 				status_text = "实习中（%s）" % order.car_name
+			elif not training.is_empty():
+				var course: Resource = training["course"]
+				status_text = "训练中（%s）" % course.course_name
 			else:
-				status_text = "实习中"
+				status_text = "忙碌中"
 
 		var status_label := Label.new()
 		status_label.text = "学徒 #%d：Lv%d，经验 %d/%d，月薪 %d，%s [%s]" % [
@@ -264,6 +300,13 @@ func _update_apprentice_list() -> void:
 		exam_button.disabled = not game_state.can_take_exam(a["id"])
 		exam_button.pressed.connect(_on_exam_button_pressed.bind(a["id"]))
 		row.add_child(exam_button)
+
+		for course in TRAINING_COURSES:
+			var train_button := Button.new()
+			train_button.text = "训练：%s" % course.course_name
+			train_button.disabled = not game_state.can_start_training(a["id"], course)
+			train_button.pressed.connect(_on_train_button_pressed.bind(a["id"], course))
+			row.add_child(train_button)
 
 		apprentice_list_container.add_child(row)
 

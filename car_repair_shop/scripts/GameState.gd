@@ -33,11 +33,19 @@ const APPRENTICE_SALARY_LEVEL_STEP := 5
 const APPRENTICE_XP_BASE := 50
 const APPRENTICE_XP_LEVEL_STEP := 20
 
-# 2026-08-09：员工属性系统骨架。5 项属性（机械/电气/钣喷偏硬技能，细心/沟通偏软技能），
-# 招募时随机生成基础值；成长曲线（训练/带教）、考试通过率、车型属性权重都还没做，占位范围随手定
+# 2026-08-09：员工属性系统骨架。5 项属性（机械/电气/钣喷偏硬技能，细心/沟通偏软技能）。
+# 2026-08-10：区分工人/学徒的起始值——工人是已出师的熟练工，随机值贴近一级考试线；
+# 学徒是白纸，五项统一从最低值起步，全靠训练/带教走方向分化。
+# 考试通过率、车型属性权重仍未做，占位数值随手定
 const ATTRIBUTE_KEYS: Array[String] = ["mechanical", "electrical", "bodywork", "precision", "communication"]
-const ATTRIBUTE_BASE_MIN := 5
-const ATTRIBUTE_BASE_MAX := 20
+const WORKER_ATTR_MIN := 15
+const WORKER_ATTR_MAX := 25
+const APPRENTICE_ATTR_BASE := 5
+
+# 训练：学徒花钱选一门课，精准培养对应属性。属性总和越接近软上限，单次涨幅越小
+# （留个尾部不会完全练不动），具体课程数值见 resources/courses/*.tres
+const ATTRIBUTE_SOFT_CAP := 150.0
+const ATTRIBUTE_GROWTH_FLOOR_RATIO := 0.1
 
 const STARTING_MONEY := 100
 
@@ -96,11 +104,25 @@ func add_reputation(amount: int) -> void:
 	reputation_changed.emit(reputation)
 
 
-func _random_base_attributes() -> Dictionary:
+func _random_worker_attributes() -> Dictionary:
 	var attrs := {}
 	for key in ATTRIBUTE_KEYS:
-		attrs[key] = randi_range(ATTRIBUTE_BASE_MIN, ATTRIBUTE_BASE_MAX)
+		attrs[key] = randi_range(WORKER_ATTR_MIN, WORKER_ATTR_MAX)
 	return attrs
+
+
+func _base_apprentice_attributes() -> Dictionary:
+	var attrs := {}
+	for key in ATTRIBUTE_KEYS:
+		attrs[key] = APPRENTICE_ATTR_BASE
+	return attrs
+
+
+func attribute_sum(attrs: Dictionary) -> int:
+	var total := 0
+	for key in ATTRIBUTE_KEYS:
+		total += attrs[key]
+	return total
 
 
 func workers() -> Array[Dictionary]:
@@ -149,7 +171,7 @@ func hire_worker() -> bool:
 	money -= cost
 	employees.append({
 		"id": _next_employee_id, "kind": "worker", "busy": false, "level": 0, "xp": 0,
-		"attributes": _random_base_attributes(),
+		"attributes": _random_worker_attributes(),
 	})
 	_next_employee_id += 1
 	money_changed.emit(money)
@@ -198,7 +220,7 @@ func hire_apprentice() -> bool:
 	money -= next_apprentice_hire_cost()
 	employees.append({
 		"id": _next_employee_id, "kind": "apprentice", "busy": false, "level": 0, "xp": 0,
-		"attributes": _random_base_attributes(),
+		"attributes": _base_apprentice_attributes(),
 	})
 	_next_employee_id += 1
 	money_changed.emit(money)
@@ -233,3 +255,33 @@ func take_exam(id: int) -> bool:
 	e["level"] += 1
 	employees_changed.emit()
 	return true
+
+
+func can_start_training(id: int, course: Resource) -> bool:
+	var e := get_employee(id)
+	if e.is_empty() or e["kind"] != "apprentice" or e["busy"]:
+		return false
+	return money >= course.cost
+
+
+func start_training(id: int, course: Resource) -> bool:
+	if not can_start_training(id, course):
+		return false
+	money -= course.cost
+	var e := get_employee(id)
+	e["busy"] = true
+	money_changed.emit(money)
+	employees_changed.emit()
+	return true
+
+
+func complete_training(id: int, course: Resource) -> void:
+	var e := get_employee(id)
+	if e.is_empty():
+		return
+	var attrs: Dictionary = e["attributes"]
+	var factor: float = max(ATTRIBUTE_GROWTH_FLOOR_RATIO, 1.0 - float(attribute_sum(attrs)) / ATTRIBUTE_SOFT_CAP)
+	var growth: int = roundi(course.base_growth * factor)
+	attrs[course.attribute_key] += growth
+	e["busy"] = false
+	employees_changed.emit()
