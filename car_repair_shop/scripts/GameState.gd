@@ -47,6 +47,16 @@ const APPRENTICE_ATTR_BASE := 5
 const ATTRIBUTE_SOFT_CAP := 150.0
 const ATTRIBUTE_GROWTH_FLOOR_RATIO := 0.1
 
+# 2026-08-11：考试不再靠经验值门槛，改成随时可考、通过率由五维属性总和决定——
+# 达到门槛必过，每差 1 点扣一定百分比，钳制在 [1%, 100%] 之间留运气成分。
+# 考试本身要花钱（报名费），无论成败都不退，防止无脑连点重考。门槛/扣分率/报名费占位待平衡
+const EXAM_COST := 20
+const EXAM_ATTRIBUTE_THRESHOLD_BASE := 100
+const EXAM_ATTRIBUTE_THRESHOLD_LEVEL_STEP := 40
+const EXAM_PASS_RATE_PENALTY_PER_POINT := 8.0
+const EXAM_PASS_RATE_MIN := 1.0
+const EXAM_PASS_RATE_MAX := 100.0
+
 const STARTING_MONEY := 100
 
 var money: int = STARTING_MONEY
@@ -240,21 +250,40 @@ func add_apprentice_xp(id: int, amount: int) -> void:
 	employees_changed.emit()
 
 
+func exam_attribute_threshold(level: int) -> int:
+	return EXAM_ATTRIBUTE_THRESHOLD_BASE + EXAM_ATTRIBUTE_THRESHOLD_LEVEL_STEP * level
+
+
+func exam_pass_rate(id: int) -> float:
+	var e := get_employee(id)
+	if e.is_empty():
+		return 0.0
+	var threshold := exam_attribute_threshold(e["level"])
+	var deficit: int = max(0, threshold - attribute_sum(e["attributes"]))
+	var rate := EXAM_PASS_RATE_MAX - EXAM_PASS_RATE_PENALTY_PER_POINT * deficit
+	return clamp(rate, EXAM_PASS_RATE_MIN, EXAM_PASS_RATE_MAX)
+
+
 func can_take_exam(id: int) -> bool:
 	var e := get_employee(id)
-	if e.is_empty() or e["kind"] != "apprentice":
+	if e.is_empty() or e["kind"] != "apprentice" or e["busy"]:
 		return false
-	return e["xp"] >= apprentice_xp_required_for_level(e["level"])
+	return money >= EXAM_COST
 
 
-func take_exam(id: int) -> bool:
+# 返回空字典表示没能开考；否则 {"passed": bool, "rate": float}——报名费无论成败都扣
+func take_exam(id: int) -> Dictionary:
 	if not can_take_exam(id):
-		return false
-	var e := get_employee(id)
-	e["xp"] -= apprentice_xp_required_for_level(e["level"])
-	e["level"] += 1
+		return {}
+	var rate := exam_pass_rate(id)
+	money -= EXAM_COST
+	var passed := randf() * 100.0 < rate
+	if passed:
+		var e := get_employee(id)
+		e["level"] += 1
+	money_changed.emit(money)
 	employees_changed.emit()
-	return true
+	return {"passed": passed, "rate": rate}
 
 
 func can_start_training(id: int, course: Resource) -> bool:

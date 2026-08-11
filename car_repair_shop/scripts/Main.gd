@@ -186,7 +186,15 @@ func _on_practice_complete(practice: Dictionary) -> void:
 
 
 func _on_exam_button_pressed(employee_id: int) -> void:
-	game_state.take_exam(employee_id)
+	var result: Dictionary = game_state.take_exam(employee_id)
+	if result.is_empty():
+		return
+	if result["passed"]:
+		var e: Dictionary = game_state.get_employee(employee_id)
+		last_result_text = "考试：学徒 #%d 通过（概率%.0f%%），晋升至 Lv%d" % [employee_id, result["rate"], e["level"]]
+	else:
+		last_result_text = "考试：学徒 #%d 未通过（概率%.0f%%），报名费 %d 打水漂" % [employee_id, result["rate"], game_state.EXAM_COST]
+	_update_all()
 
 
 func _on_train_button_pressed(employee_id: int, course: Resource) -> void:
@@ -296,7 +304,7 @@ func _update_apprentice_list() -> void:
 		row.add_child(practice_button)
 
 		var exam_button := Button.new()
-		exam_button.text = "考试"
+		exam_button.text = "考试 (%d，通过率%.0f%%)" % [game_state.EXAM_COST, game_state.exam_pass_rate(a["id"])]
 		exam_button.disabled = not game_state.can_take_exam(a["id"])
 		exam_button.pressed.connect(_on_exam_button_pressed.bind(a["id"]))
 		row.add_child(exam_button)
