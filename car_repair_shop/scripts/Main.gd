@@ -24,6 +24,11 @@ const TRAINING_COURSES: Array[Resource] = [
 	preload("res://resources/courses/communication.tres"),
 ]
 
+const ATTRIBUTE_SHORT_NAMES := {
+	"mechanical": "机械", "electrical": "电气", "bodywork": "钣喷",
+	"precision": "细心", "communication": "沟通",
+}
+
 @onready var money_label: Label = $UI/MoneyLabel
 @onready var order_label: Label = $UI/OrderLabel
 @onready var repair_button: Button = $UI/RepairButton
@@ -136,10 +141,57 @@ func _on_job_complete(job: Dictionary) -> void:
 	var actual_payout: int = roundi(order.payout * game_state.payout_multiplier())
 	game_state.add_money(actual_payout)
 	game_state.add_reputation(order.reputation_gain)
-	last_result_text = "完成：%s，收入 %d，口碑 +%d" % [order.car_name, actual_payout, order.reputation_gain]
+	var apprentice_id: int = job.get("apprentice_id", -1)
+	if apprentice_id != -1:
+		var master: Dictionary = game_state.get_employee(job["employee_id"])
+		var points: int = game_state.mentor_points_earned(master["attributes"]["precision"])
+		game_state.add_attribute_points(apprentice_id, points)
+		game_state.set_employee_busy(apprentice_id, false)
+		last_result_text = "带教完成：%s，收入 %d，口碑 +%d，学徒 #%d 获得 %d 点属性点" % [
+			order.car_name, actual_payout, order.reputation_gain, apprentice_id, points,
+		]
+	else:
+		last_result_text = "完成：%s，收入 %d，口碑 +%d" % [order.car_name, actual_payout, order.reputation_gain]
 	active_jobs.erase(job)
 	(job["timer"] as Timer).queue_free()
 	game_state.set_employee_busy(job["employee_id"], false)
+	_update_all()
+
+
+func _find_mentor_job_by_apprentice(apprentice_id: int) -> Dictionary:
+	for j in active_jobs:
+		if j.get("apprentice_id", -1) == apprentice_id:
+			return j
+	return {}
+
+
+func _on_mentor_button_pressed(apprentice_id: int, worker_option: OptionButton) -> void:
+	if worker_option.selected < 0:
+		return
+	var worker_id: int = worker_option.get_item_metadata(worker_option.selected)
+	if not game_state.can_start_mentoring(worker_id, apprentice_id):
+		return
+	if active_jobs.size() >= game_state.station_count() or pending_orders.is_empty():
+		return
+	var pending: Dictionary = pending_orders[0]
+	pending_orders.erase(pending)
+	(pending["timer"] as Timer).queue_free()
+	var order: Resource = pending["order"]
+	var timer := Timer.new()
+	timer.one_shot = true
+	timer.wait_time = order.repair_time * (1.0 - game_state.MENTOR_TIME_REDUCTION_RATIO)
+	add_child(timer)
+	var job := {"order": order, "timer": timer, "employee_id": worker_id, "apprentice_id": apprentice_id}
+	timer.timeout.connect(_on_job_complete.bind(job))
+	active_jobs.append(job)
+	game_state.set_employee_busy(worker_id, true)
+	game_state.set_employee_busy(apprentice_id, true)
+	timer.start()
+	_update_all()
+
+
+func _on_allocate_button_pressed(apprentice_id: int, attribute_key: String) -> void:
+	game_state.allocate_attribute_point(apprentice_id, attribute_key)
 	_update_all()
 
 
@@ -259,7 +311,11 @@ func _update_worker_list() -> void:
 			var job := _find_by_employee(active_jobs, w["id"])
 			if not job.is_empty():
 				var order: Resource = job["order"]
-				status_text = "工作中（%s）" % order.car_name
+				var apprentice_id: int = job.get("apprentice_id", -1)
+				if apprentice_id != -1:
+					status_text = "带教中（%s，学徒#%d）" % [order.car_name, apprentice_id]
+				else:
+					status_text = "工作中（%s）" % order.car_name
 			else:
 				status_text = "工作中"
 		row.text = "工人 #%d：%s [%s]" % [w["id"], status_text, _format_attributes(w["attributes"])]
@@ -270,28 +326,38 @@ func _update_apprentice_list() -> void:
 	for child in apprentice_list_container.get_children():
 		child.queue_free()
 	for a in game_state.apprentices():
+		# 学徒行按钮已经超过单行 HBoxContainer 能容纳的宽度（超出窗口会点不到），
+		# 拆成多个子行的 VBoxContainer：状态行 / 训练课程行 / 带教配对行 / 属性分配行
+		var block := VBoxContainer.new()
 		var row := HBoxContainer.new()
+		block.add_child(row)
 
 		var status_text := "空闲"
 		if a["busy"]:
 			var practice := _find_by_employee(active_practices, a["id"])
 			var training := _find_by_employee(active_trainings, a["id"])
+			var mentor_job := _find_mentor_job_by_apprentice(a["id"])
 			if not practice.is_empty():
 				var order: Resource = practice["order"]
 				status_text = "实习中（%s）" % order.car_name
 			elif not training.is_empty():
 				var course: Resource = training["course"]
 				status_text = "训练中（%s）" % course.course_name
+			elif not mentor_job.is_empty():
+				var order: Resource = mentor_job["order"]
+				status_text = "带教中（%s，师傅#%d）" % [order.car_name, mentor_job["employee_id"]]
 			else:
 				status_text = "忙碌中"
 
+		var pending_points: int = a.get("pending_points", 0)
 		var status_label := Label.new()
-		status_label.text = "学徒 #%d：Lv%d，经验 %d/%d，月薪 %d，%s [%s]" % [
+		status_label.text = "学徒 #%d：Lv%d，经验 %d/%d，月薪 %d，待分配点数 %d，%s [%s]" % [
 			a["id"],
 			a["level"],
 			a["xp"],
 			game_state.apprentice_xp_required_for_level(a["level"]),
 			game_state.apprentice_salary_for_level(a["level"]),
+			pending_points,
 			status_text,
 			_format_attributes(a["attributes"]),
 		]
@@ -309,14 +375,43 @@ func _update_apprentice_list() -> void:
 		exam_button.pressed.connect(_on_exam_button_pressed.bind(a["id"]))
 		row.add_child(exam_button)
 
+		var course_row := HBoxContainer.new()
+		block.add_child(course_row)
 		for course in TRAINING_COURSES:
 			var train_button := Button.new()
 			train_button.text = "训练：%s" % course.course_name
 			train_button.disabled = not game_state.can_start_training(a["id"], course)
 			train_button.pressed.connect(_on_train_button_pressed.bind(a["id"], course))
-			row.add_child(train_button)
+			course_row.add_child(train_button)
 
-		apprentice_list_container.add_child(row)
+		if not a["busy"]:
+			var idle_workers: Array[Dictionary] = game_state.idle_workers()
+			if not idle_workers.is_empty():
+				var mentor_row := HBoxContainer.new()
+				block.add_child(mentor_row)
+
+				var worker_option := OptionButton.new()
+				for w in idle_workers:
+					worker_option.add_item("师傅 #%d" % w["id"])
+					worker_option.set_item_metadata(worker_option.item_count - 1, w["id"])
+				mentor_row.add_child(worker_option)
+
+				var mentor_button := Button.new()
+				mentor_button.text = "带教修车"
+				mentor_button.disabled = active_jobs.size() >= game_state.station_count() or pending_orders.is_empty()
+				mentor_button.pressed.connect(_on_mentor_button_pressed.bind(a["id"], worker_option))
+				mentor_row.add_child(mentor_button)
+
+		if pending_points > 0:
+			var alloc_row := HBoxContainer.new()
+			block.add_child(alloc_row)
+			for key in game_state.ATTRIBUTE_KEYS:
+				var alloc_button := Button.new()
+				alloc_button.text = "+%s" % ATTRIBUTE_SHORT_NAMES[key]
+				alloc_button.pressed.connect(_on_allocate_button_pressed.bind(a["id"], key))
+				alloc_row.add_child(alloc_button)
+
+		apprentice_list_container.add_child(block)
 
 
 func _update_labels() -> void:
