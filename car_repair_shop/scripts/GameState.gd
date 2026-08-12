@@ -57,6 +57,13 @@ const EXAM_PASS_RATE_PENALTY_PER_POINT := 8.0
 const EXAM_PASS_RATE_MIN := 1.0
 const EXAM_PASS_RATE_MAX := 100.0
 
+# 2026-08-12：带教——属性成长第二条路径。空闲工人+空闲学徒配对，一起占一个工位处理真实
+# 订单：耗时按比例打折（效率提升），完工后学徒获得整数属性点，数量由师傅的"细心"属性决定
+# （细心越高教得越好），点数由玩家手动分配到任意一项属性，不自动指定。比例/系数占位待平衡
+const MENTOR_TIME_REDUCTION_RATIO := 0.2
+const MENTOR_POINTS_BASE := 1
+const MENTOR_PRECISION_DIVISOR := 10
+
 const STARTING_MONEY := 100
 
 var money: int = STARTING_MONEY
@@ -230,7 +237,7 @@ func hire_apprentice() -> bool:
 	money -= next_apprentice_hire_cost()
 	employees.append({
 		"id": _next_employee_id, "kind": "apprentice", "busy": false, "level": 0, "xp": 0,
-		"attributes": _base_apprentice_attributes(),
+		"attributes": _base_apprentice_attributes(), "pending_points": 0,
 	})
 	_next_employee_id += 1
 	money_changed.emit(money)
@@ -314,3 +321,37 @@ func complete_training(id: int, course: Resource) -> void:
 	attrs[course.attribute_key] += growth
 	e["busy"] = false
 	employees_changed.emit()
+
+
+func can_start_mentoring(worker_id: int, apprentice_id: int) -> bool:
+	var worker := get_employee(worker_id)
+	var apprentice := get_employee(apprentice_id)
+	if worker.is_empty() or worker["kind"] != "worker" or worker["busy"]:
+		return false
+	if apprentice.is_empty() or apprentice["kind"] != "apprentice" or apprentice["busy"]:
+		return false
+	return true
+
+
+func mentor_points_earned(master_precision: int) -> int:
+	return MENTOR_POINTS_BASE + master_precision / MENTOR_PRECISION_DIVISOR
+
+
+func add_attribute_points(id: int, amount: int) -> void:
+	var e := get_employee(id)
+	if e.is_empty():
+		return
+	e["pending_points"] = int(e.get("pending_points", 0)) + amount
+	employees_changed.emit()
+
+
+# 玩家手动把学徒的一点待分配点数加到指定属性上，返回是否成功（没点数时失败）
+func allocate_attribute_point(id: int, attribute_key: String) -> bool:
+	var e := get_employee(id)
+	if e.is_empty() or int(e.get("pending_points", 0)) <= 0:
+		return false
+	e["pending_points"] = int(e["pending_points"]) - 1
+	var attrs: Dictionary = e["attributes"]
+	attrs[attribute_key] = int(attrs[attribute_key]) + 1
+	employees_changed.emit()
+	return true
