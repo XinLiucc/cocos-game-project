@@ -57,9 +57,10 @@ const EXAM_PASS_RATE_PENALTY_PER_POINT := 8.0
 const EXAM_PASS_RATE_MIN := 1.0
 const EXAM_PASS_RATE_MAX := 100.0
 
-# 2026-08-12：带教——属性成长第二条路径。空闲工人+空闲学徒配对，一起占一个工位处理真实
-# 订单：耗时按比例打折（效率提升），完工后学徒获得整数属性点，数量由师傅的"细心"属性决定
-# （细心越高教得越好），点数由玩家手动分配到任意一项属性，不自动指定。比例/系数占位待平衡
+# 2026-08-12：带教——属性成长第二条路径。工人可以"带"一个学徒，这是长期绑定关系而不是每次
+# 手动触发的动作：师傅接单干活时，只要绑定的学徒当前空闲，就自动一起进这单（耗时按比例打折，
+# 完工后学徒获得整数属性点），学徒不空闲时师傅照常独自接单。点数数量由师傅的"细心"属性决定
+# （细心越高教得越好），具体加到哪项属性仍由玩家手动分配，不自动指定。比例/系数占位待平衡
 const MENTOR_TIME_REDUCTION_RATIO := 0.2
 const MENTOR_POINTS_BASE := 1
 const MENTOR_PRECISION_DIVISOR := 10
@@ -188,7 +189,7 @@ func hire_worker() -> bool:
 	money -= cost
 	employees.append({
 		"id": _next_employee_id, "kind": "worker", "busy": false, "level": 0, "xp": 0,
-		"attributes": _random_worker_attributes(),
+		"attributes": _random_worker_attributes(), "mentor_apprentice_id": -1,
 	})
 	_next_employee_id += 1
 	money_changed.emit(money)
@@ -323,14 +324,41 @@ func complete_training(id: int, course: Resource) -> void:
 	employees_changed.emit()
 
 
-func can_start_mentoring(worker_id: int, apprentice_id: int) -> bool:
+# 每个学徒同一时间只能被一个师傅带教：绑定新师傅时，先把这个学徒从原师傅那解绑
+func bind_mentor(worker_id: int, apprentice_id: int) -> bool:
 	var worker := get_employee(worker_id)
 	var apprentice := get_employee(apprentice_id)
-	if worker.is_empty() or worker["kind"] != "worker" or worker["busy"]:
+	if worker.is_empty() or worker["kind"] != "worker":
 		return false
-	if apprentice.is_empty() or apprentice["kind"] != "apprentice" or apprentice["busy"]:
+	if apprentice.is_empty() or apprentice["kind"] != "apprentice":
 		return false
+	for e in workers():
+		if e.get("mentor_apprentice_id", -1) == apprentice_id:
+			e["mentor_apprentice_id"] = -1
+	worker["mentor_apprentice_id"] = apprentice_id
+	employees_changed.emit()
 	return true
+
+
+func unbind_mentor(worker_id: int) -> void:
+	var worker := get_employee(worker_id)
+	if worker.is_empty():
+		return
+	worker["mentor_apprentice_id"] = -1
+	employees_changed.emit()
+
+
+func bound_apprentice_ids() -> Array:
+	return workers().filter(func(w: Dictionary) -> bool: return w.get("mentor_apprentice_id", -1) != -1) \
+		.map(func(w: Dictionary) -> int: return w["mentor_apprentice_id"])
+
+
+# 返回带教这个学徒的师傅 id，没人带则返回 -1
+func mentor_of(apprentice_id: int) -> int:
+	for w in workers():
+		if w.get("mentor_apprentice_id", -1) == apprentice_id:
+			return w["id"]
+	return -1
 
 
 func mentor_points_earned(master_precision: int) -> int:
