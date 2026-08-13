@@ -51,6 +51,16 @@ var active_trainings: Array[Dictionary] = []
 var pending_orders: Array[Dictionary] = []
 var order_spawn_timer: Timer
 var last_result_text := "尚未完成过订单"
+# 中文文本的排版开销远高于英文（实测每个中文 Label 约 7ms，跟字体无关），列表每帧全量
+# queue_free()+重建就是卡顿的真正根因。改成常驻行控件、按下标复用（员工只增不减，下标稳定），
+# 每次只在算出来的文字真的变了时才写 .text（触发排版），按钮 disabled/visible 是纯布尔状态，
+# 随便更新不会有排版开销。数组下标与 game_state.workers()/apprentices() 的返回顺序一一对应
+var _worker_rows: Array[Dictionary] = []
+var _apprentice_rows: Array[Dictionary] = []
+# 单次操作里 game_state 信号可能连环触发好几次 _update_all()（比如接单要连续
+# set_employee_busy 师傅+学徒两次），改成只打脏标记、_process() 里每帧最多重建一次列表，
+# 避免一次点击引发好几倍的列表重建（这是"点接单修车卡顿"的根因）
+var _ui_dirty := false
 
 
 func _ready() -> void:
@@ -74,6 +84,9 @@ func _ready() -> void:
 
 func _process(_delta: float) -> void:
 	_update_order_label()
+	if _ui_dirty:
+		_update_all()
+		_ui_dirty = false
 
 
 func _get_available_orders() -> Array[Resource]:
@@ -104,7 +117,7 @@ func _on_order_spawn_timer_timeout() -> void:
 	timer.timeout.connect(_on_pending_order_expired.bind(pending))
 	pending_orders.append(pending)
 	timer.start()
-	_update_all()
+	_ui_dirty = true
 
 
 func _on_pending_order_expired(pending: Dictionary) -> void:
@@ -113,7 +126,7 @@ func _on_pending_order_expired(pending: Dictionary) -> void:
 	(pending["timer"] as Timer).queue_free()
 	game_state.add_reputation(-REPUTATION_LOSS_ON_EXPIRE)
 	last_result_text = "流失：%s 超时未处理，口碑 -%d" % [order.car_name, REPUTATION_LOSS_ON_EXPIRE]
-	_update_all()
+	_ui_dirty = true
 
 
 func _on_repair_button_pressed() -> void:
@@ -146,7 +159,7 @@ func _on_repair_button_pressed() -> void:
 	if apprentice_id != -1:
 		game_state.set_employee_busy(apprentice_id, true)
 	timer.start()
-	_update_all()
+	_ui_dirty = true
 
 
 func _on_job_complete(job: Dictionary) -> void:
@@ -168,7 +181,7 @@ func _on_job_complete(job: Dictionary) -> void:
 	active_jobs.erase(job)
 	(job["timer"] as Timer).queue_free()
 	game_state.set_employee_busy(job["employee_id"], false)
-	_update_all()
+	_ui_dirty = true
 
 
 func _find_mentor_job_by_apprentice(apprentice_id: int) -> Dictionary:
@@ -183,17 +196,17 @@ func _on_bind_mentor_pressed(worker_id: int, apprentice_option: OptionButton) ->
 		return
 	var apprentice_id: int = apprentice_option.get_item_metadata(apprentice_option.selected)
 	game_state.bind_mentor(worker_id, apprentice_id)
-	_update_all()
+	_ui_dirty = true
 
 
 func _on_unbind_mentor_pressed(worker_id: int) -> void:
 	game_state.unbind_mentor(worker_id)
-	_update_all()
+	_ui_dirty = true
 
 
 func _on_allocate_button_pressed(apprentice_id: int, attribute_key: String) -> void:
 	game_state.allocate_attribute_point(apprentice_id, attribute_key)
-	_update_all()
+	_ui_dirty = true
 
 
 func _on_hire_button_pressed() -> void:
@@ -223,7 +236,7 @@ func _on_practice_button_pressed(employee_id: int) -> void:
 	active_practices.append(practice)
 	game_state.set_employee_busy(employee_id, true)
 	timer.start()
-	_update_all()
+	_ui_dirty = true
 
 
 func _on_practice_complete(practice: Dictionary) -> void:
@@ -235,7 +248,7 @@ func _on_practice_complete(practice: Dictionary) -> void:
 	active_practices.erase(practice)
 	(practice["timer"] as Timer).queue_free()
 	game_state.set_employee_busy(practice["employee_id"], false)
-	_update_all()
+	_ui_dirty = true
 
 
 func _on_exam_button_pressed(employee_id: int) -> void:
@@ -247,7 +260,7 @@ func _on_exam_button_pressed(employee_id: int) -> void:
 		last_result_text = "考试：学徒 #%d 通过（概率%.0f%%），晋升至 Lv%d" % [employee_id, result["rate"], e["level"]]
 	else:
 		last_result_text = "考试：学徒 #%d 未通过（概率%.0f%%），报名费 %d 打水漂" % [employee_id, result["rate"], game_state.EXAM_COST]
-	_update_all()
+	_ui_dirty = true
 
 
 func _on_train_button_pressed(employee_id: int, course: Resource) -> void:
@@ -261,7 +274,7 @@ func _on_train_button_pressed(employee_id: int, course: Resource) -> void:
 	timer.timeout.connect(_on_training_complete.bind(training))
 	active_trainings.append(training)
 	timer.start()
-	_update_all()
+	_ui_dirty = true
 
 
 func _on_training_complete(training: Dictionary) -> void:
@@ -269,15 +282,15 @@ func _on_training_complete(training: Dictionary) -> void:
 	game_state.complete_training(training["employee_id"], course)
 	active_trainings.erase(training)
 	(training["timer"] as Timer).queue_free()
-	_update_all()
+	_ui_dirty = true
 
 
 func _on_int_state_changed(_value: int) -> void:
-	_update_all()
+	_ui_dirty = true
 
 
 func _on_employees_changed() -> void:
-	_update_all()
+	_ui_dirty = true
 
 
 func _update_order_label() -> void:
@@ -302,12 +315,47 @@ func _format_attributes(attrs: Dictionary) -> String:
 	]
 
 
-func _update_worker_list() -> void:
-	for child in worker_list_container.get_children():
+func _rebuild_worker_action_widgets(entry: Dictionary, worker_id: int, mentor_id: int, available_ids: Array) -> void:
+	var action_container: HBoxContainer = entry["action_container"]
+	for child in action_container.get_children():
 		child.queue_free()
+	if mentor_id != -1:
+		var unbind_button := Button.new()
+		unbind_button.text = "解除带教"
+		unbind_button.pressed.connect(_on_unbind_mentor_pressed.bind(worker_id))
+		action_container.add_child(unbind_button)
+	elif not available_ids.is_empty():
+		var apprentice_option := OptionButton.new()
+		for a_id in available_ids:
+			apprentice_option.add_item("学徒 #%d" % a_id)
+			apprentice_option.set_item_metadata(apprentice_option.item_count - 1, a_id)
+		action_container.add_child(apprentice_option)
+
+		var bind_button := Button.new()
+		bind_button.text = "带徒弟"
+		bind_button.pressed.connect(_on_bind_mentor_pressed.bind(worker_id, apprentice_option))
+		action_container.add_child(bind_button)
+	entry["mentor_id"] = mentor_id
+	entry["available_ids"] = available_ids
+
+
+func _update_worker_list() -> void:
 	var bound_apprentice_ids: Array = game_state.bound_apprentice_ids()
-	for w in game_state.workers():
-		var row := HBoxContainer.new()
+	var workers: Array[Dictionary] = game_state.workers()
+	for i in range(workers.size()):
+		var w: Dictionary = workers[i]
+		var entry: Dictionary
+		if i < _worker_rows.size():
+			entry = _worker_rows[i]
+		else:
+			var row := HBoxContainer.new()
+			var new_label := Label.new()
+			row.add_child(new_label)
+			var action_container := HBoxContainer.new()
+			row.add_child(action_container)
+			entry = {"row": row, "label": new_label, "action_container": action_container, "mentor_id": -2, "available_ids": [-2]}
+			_worker_rows.append(entry)
+			worker_list_container.add_child(row)
 
 		var status_text := "空闲"
 		if w["busy"]:
@@ -325,43 +373,78 @@ func _update_worker_list() -> void:
 		var mentor_id: int = w.get("mentor_apprentice_id", -1)
 		var mentor_text := "，带教学徒 #%d" % mentor_id if mentor_id != -1 else ""
 
-		var label := Label.new()
-		label.text = "工人 #%d：%s%s [%s]" % [w["id"], status_text, mentor_text, _format_attributes(w["attributes"])]
-		row.add_child(label)
+		var new_text := "工人 #%d：%s%s [%s]" % [w["id"], status_text, mentor_text, _format_attributes(w["attributes"])]
+		var label: Label = entry["label"]
+		if label.text != new_text:
+			label.text = new_text
 
-		if mentor_id != -1:
-			var unbind_button := Button.new()
-			unbind_button.text = "解除带教"
-			unbind_button.pressed.connect(_on_unbind_mentor_pressed.bind(w["id"]))
-			row.add_child(unbind_button)
-		else:
-			var available: Array[Dictionary] = game_state.apprentices().filter(
-				func(a: Dictionary) -> bool: return not bound_apprentice_ids.has(a["id"])
-			)
-			if not available.is_empty():
-				var apprentice_option := OptionButton.new()
-				for a in available:
-					apprentice_option.add_item("学徒 #%d" % a["id"])
-					apprentice_option.set_item_metadata(apprentice_option.item_count - 1, a["id"])
-				row.add_child(apprentice_option)
+		var available_ids: Array = []
+		if mentor_id == -1:
+			for a in game_state.apprentices():
+				if not bound_apprentice_ids.has(a["id"]):
+					available_ids.append(a["id"])
 
-				var bind_button := Button.new()
-				bind_button.text = "带徒弟"
-				bind_button.pressed.connect(_on_bind_mentor_pressed.bind(w["id"], apprentice_option))
-				row.add_child(bind_button)
+		if mentor_id != entry["mentor_id"] or available_ids != entry["available_ids"]:
+			_rebuild_worker_action_widgets(entry, w["id"], mentor_id, available_ids)
 
-		worker_list_container.add_child(row)
+
+func _create_apprentice_row(apprentice_id: int) -> Dictionary:
+	# 学徒行按钮已经超过单行 HBoxContainer 能容纳的宽度（超出窗口会点不到），
+	# 拆成多个子行的 VBoxContainer：状态行 / 训练课程行 / 属性分配行。
+	# 训练课程按钮文字固定不变（课程列表不会变），属性分配按钮文字也固定不变——
+	# 两者都只建一次，之后只切换 disabled/visible，不再重新赋值 .text（避免中文排版开销）
+	var block := VBoxContainer.new()
+	var row := HBoxContainer.new()
+	block.add_child(row)
+
+	var status_label := Label.new()
+	row.add_child(status_label)
+
+	var practice_button := Button.new()
+	practice_button.text = "实习"
+	practice_button.pressed.connect(_on_practice_button_pressed.bind(apprentice_id))
+	row.add_child(practice_button)
+
+	var exam_button := Button.new()
+	exam_button.pressed.connect(_on_exam_button_pressed.bind(apprentice_id))
+	row.add_child(exam_button)
+
+	var course_row := HBoxContainer.new()
+	block.add_child(course_row)
+	var course_buttons: Array[Button] = []
+	for course in TRAINING_COURSES:
+		var train_button := Button.new()
+		train_button.text = "训练：%s" % course.course_name
+		train_button.pressed.connect(_on_train_button_pressed.bind(apprentice_id, course))
+		course_row.add_child(train_button)
+		course_buttons.append(train_button)
+
+	var alloc_row := HBoxContainer.new()
+	alloc_row.visible = false
+	block.add_child(alloc_row)
+	for key in game_state.ATTRIBUTE_KEYS:
+		var alloc_button := Button.new()
+		alloc_button.text = "+%s" % ATTRIBUTE_SHORT_NAMES[key]
+		alloc_button.pressed.connect(_on_allocate_button_pressed.bind(apprentice_id, key))
+		alloc_row.add_child(alloc_button)
+
+	apprentice_list_container.add_child(block)
+	return {
+		"block": block, "status_label": status_label, "practice_button": practice_button,
+		"exam_button": exam_button, "course_buttons": course_buttons, "alloc_row": alloc_row,
+	}
 
 
 func _update_apprentice_list() -> void:
-	for child in apprentice_list_container.get_children():
-		child.queue_free()
-	for a in game_state.apprentices():
-		# 学徒行按钮已经超过单行 HBoxContainer 能容纳的宽度（超出窗口会点不到），
-		# 拆成多个子行的 VBoxContainer：状态行 / 训练课程行 / 属性分配行
-		var block := VBoxContainer.new()
-		var row := HBoxContainer.new()
-		block.add_child(row)
+	var apprentices: Array[Dictionary] = game_state.apprentices()
+	for i in range(apprentices.size()):
+		var a: Dictionary = apprentices[i]
+		var entry: Dictionary
+		if i < _apprentice_rows.size():
+			entry = _apprentice_rows[i]
+		else:
+			entry = _create_apprentice_row(a["id"])
+			_apprentice_rows.append(entry)
 
 		var status_text := "空闲"
 		if a["busy"]:
@@ -383,8 +466,7 @@ func _update_apprentice_list() -> void:
 		var pending_points: int = a.get("pending_points", 0)
 		var mentor_worker_id: int = game_state.mentor_of(a["id"])
 		var mentor_text := "，带教师傅 #%d" % mentor_worker_id if mentor_worker_id != -1 else ""
-		var status_label := Label.new()
-		status_label.text = "学徒 #%d：Lv%d，经验 %d/%d，月薪 %d，待分配点数 %d，%s%s [%s]" % [
+		var new_status_text := "学徒 #%d：Lv%d，经验 %d/%d，月薪 %d，待分配点数 %d，%s%s [%s]" % [
 			a["id"],
 			a["level"],
 			a["xp"],
@@ -395,39 +477,24 @@ func _update_apprentice_list() -> void:
 			mentor_text,
 			_format_attributes(a["attributes"]),
 		]
-		row.add_child(status_label)
+		var status_label: Label = entry["status_label"]
+		if status_label.text != new_status_text:
+			status_label.text = new_status_text
 
-		var practice_button := Button.new()
-		practice_button.text = "实习"
+		var practice_button: Button = entry["practice_button"]
 		practice_button.disabled = a["busy"]
-		practice_button.pressed.connect(_on_practice_button_pressed.bind(a["id"]))
-		row.add_child(practice_button)
 
-		var exam_button := Button.new()
-		exam_button.text = "考试 (%d，通过率%.0f%%)" % [game_state.EXAM_COST, game_state.exam_pass_rate(a["id"])]
+		var exam_button: Button = entry["exam_button"]
+		var new_exam_text := "考试 (%d，通过率%.0f%%)" % [game_state.EXAM_COST, game_state.exam_pass_rate(a["id"])]
+		if exam_button.text != new_exam_text:
+			exam_button.text = new_exam_text
 		exam_button.disabled = not game_state.can_take_exam(a["id"])
-		exam_button.pressed.connect(_on_exam_button_pressed.bind(a["id"]))
-		row.add_child(exam_button)
 
-		var course_row := HBoxContainer.new()
-		block.add_child(course_row)
-		for course in TRAINING_COURSES:
-			var train_button := Button.new()
-			train_button.text = "训练：%s" % course.course_name
-			train_button.disabled = not game_state.can_start_training(a["id"], course)
-			train_button.pressed.connect(_on_train_button_pressed.bind(a["id"], course))
-			course_row.add_child(train_button)
+		var course_buttons: Array = entry["course_buttons"]
+		for j in range(TRAINING_COURSES.size()):
+			(course_buttons[j] as Button).disabled = not game_state.can_start_training(a["id"], TRAINING_COURSES[j])
 
-		if pending_points > 0:
-			var alloc_row := HBoxContainer.new()
-			block.add_child(alloc_row)
-			for key in game_state.ATTRIBUTE_KEYS:
-				var alloc_button := Button.new()
-				alloc_button.text = "+%s" % ATTRIBUTE_SHORT_NAMES[key]
-				alloc_button.pressed.connect(_on_allocate_button_pressed.bind(a["id"], key))
-				alloc_row.add_child(alloc_button)
-
-		apprentice_list_container.add_child(block)
+		(entry["alloc_row"] as HBoxContainer).visible = pending_points > 0
 
 
 func _update_labels() -> void:
