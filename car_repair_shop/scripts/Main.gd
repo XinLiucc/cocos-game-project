@@ -30,8 +30,6 @@ const ATTRIBUTE_SHORT_NAMES := {
 }
 
 @onready var money_label: Label = $UI/MoneyLabel
-@onready var order_label: Label = $UI/OrderLabel
-@onready var repair_button: Button = $UI/RepairButton
 @onready var facility_label: Label = $UI/FacilityRow/FacilityLabel
 @onready var upgrade_button: Button = $UI/FacilityRow/UpgradeButton
 @onready var day_label: Label = $UI/DayLabel
@@ -39,9 +37,12 @@ const ATTRIBUTE_SHORT_NAMES := {
 @onready var worker_list_container: VBoxContainer = $UI/WorkerListContainer
 @onready var hire_apprentice_button: Button = $UI/ApprenticeHeaderRow/HireApprenticeButton
 @onready var apprentice_list_container: VBoxContainer = $UI/ApprenticeListContainer
+@onready var station_list_container: VBoxContainer = $UI/StationListContainer
+@onready var order_list_container: VBoxContainer = $UI/OrderListContainer
+@onready var result_label: Label = $UI/ResultLabel
 @onready var game_state: Node = get_node("/root/GameState")
 
-# 每个工位一个进行中任务：{"order": Resource, "timer": Timer, "employee_id": int}
+# 每个工位一个进行中任务：{"order": Resource, "timer": Timer, "employee_id": int, "station_id": int}
 var active_jobs: Array[Dictionary] = []
 # 每个学徒最多一个进行中实习：{"order": Resource, "timer": Timer, "employee_id": int}
 var active_practices: Array[Dictionary] = []
@@ -57,6 +58,10 @@ var last_result_text := "尚未完成过订单"
 # 随便更新不会有排版开销。数组下标与 game_state.workers()/apprentices() 的返回顺序一一对应
 var _worker_rows: Array[Dictionary] = []
 var _apprentice_rows: Array[Dictionary] = []
+# 工位同工人/学徒一样只增不减，下标复用；待处理订单队列长度不超过 QUEUE_CAPACITY，
+# 预先建好固定数量的行、按下标复用，不用的行隐藏即可，不需要动态增删节点
+var _station_rows: Array[Dictionary] = []
+var _order_rows: Array[Dictionary] = []
 # 单次操作里 game_state 信号可能连环触发好几次 _update_all()（比如接单要连续
 # set_employee_busy 师傅+学徒两次），改成只打脏标记、_process() 里每帧最多重建一次列表，
 # 避免一次点击引发好几倍的列表重建（这是"点接单修车卡顿"的根因）
@@ -69,7 +74,6 @@ func _ready() -> void:
 	order_spawn_timer.autostart = true
 	order_spawn_timer.timeout.connect(_on_order_spawn_timer_timeout)
 	add_child(order_spawn_timer)
-	repair_button.pressed.connect(_on_repair_button_pressed)
 	hire_button.pressed.connect(_on_hire_button_pressed)
 	upgrade_button.pressed.connect(_on_upgrade_button_pressed)
 	hire_apprentice_button.pressed.connect(_on_hire_apprentice_button_pressed)
@@ -79,11 +83,14 @@ func _ready() -> void:
 	game_state.day_changed.connect(_on_int_state_changed)
 	game_state.month_changed.connect(_on_int_state_changed)
 	game_state.employees_changed.connect(_on_employees_changed)
+	game_state.stations_changed.connect(_on_stations_changed)
+	for i in range(QUEUE_CAPACITY):
+		_order_rows.append(_create_order_row())
 	_update_all()
 
 
 func _process(_delta: float) -> void:
-	_update_order_label()
+	_update_dynamic_texts()
 	if _ui_dirty:
 		_update_all()
 		_ui_dirty = false
@@ -93,13 +100,16 @@ func _get_available_orders() -> Array[Resource]:
 	return ORDER_TYPES.filter(func(o: Resource) -> bool: return game_state.reputation >= o.min_reputation)
 
 
-func _can_start_job() -> bool:
-	return active_jobs.size() < game_state.station_count() and not game_state.idle_workers().is_empty()
-
-
 func _find_by_employee(jobs: Array[Dictionary], employee_id: int) -> Dictionary:
 	for j in jobs:
 		if j["employee_id"] == employee_id:
+			return j
+	return {}
+
+
+func _find_job_by_station(station_id: int) -> Dictionary:
+	for j in active_jobs:
+		if j.get("station_id", -1) == station_id:
 			return j
 	return {}
 
@@ -129,11 +139,20 @@ func _on_pending_order_expired(pending: Dictionary) -> void:
 	_ui_dirty = true
 
 
-func _on_repair_button_pressed() -> void:
-	if not _can_start_job() or pending_orders.is_empty():
+func _on_assign_order_pressed(pending: Dictionary, station_option: OptionButton) -> void:
+	if not pending_orders.has(pending) or station_option.selected < 0:
 		return
-	var worker: Dictionary = game_state.idle_workers()[0]
-	var pending: Dictionary = pending_orders[0]
+	var station_id: int = station_option.get_item_metadata(station_option.selected)
+	var station: Dictionary = game_state.get_station(station_id)
+	if station.is_empty() or station["worker_id"] == -1:
+		return
+	var worker: Dictionary = game_state.get_employee(station["worker_id"])
+	if worker.is_empty() or worker["busy"]:
+		return
+	_start_job(station_id, worker, pending)
+
+
+func _start_job(station_id: int, worker: Dictionary, pending: Dictionary) -> void:
 	pending_orders.erase(pending)
 	(pending["timer"] as Timer).queue_free()
 	var order: Resource = pending["order"]
@@ -152,7 +171,10 @@ func _on_repair_button_pressed() -> void:
 	if apprentice_id != -1:
 		timer.wait_time *= (1.0 - game_state.MENTOR_TIME_REDUCTION_RATIO)
 	add_child(timer)
-	var job := {"order": order, "timer": timer, "employee_id": worker["id"], "apprentice_id": apprentice_id}
+	var job := {
+		"order": order, "timer": timer, "employee_id": worker["id"],
+		"apprentice_id": apprentice_id, "station_id": station_id,
+	}
 	timer.timeout.connect(_on_job_complete.bind(job))
 	active_jobs.append(job)
 	game_state.set_employee_busy(worker["id"], true)
@@ -201,6 +223,19 @@ func _on_bind_mentor_pressed(worker_id: int, apprentice_option: OptionButton) ->
 
 func _on_unbind_mentor_pressed(worker_id: int) -> void:
 	game_state.unbind_mentor(worker_id)
+	_ui_dirty = true
+
+
+func _on_bind_station_pressed(station_id: int, worker_option: OptionButton) -> void:
+	if worker_option.selected < 0:
+		return
+	var worker_id: int = worker_option.get_item_metadata(worker_option.selected)
+	game_state.bind_worker_station(worker_id, station_id)
+	_ui_dirty = true
+
+
+func _on_unbind_station_pressed(station_id: int) -> void:
+	game_state.unbind_worker_station(station_id)
 	_ui_dirty = true
 
 
@@ -293,20 +328,48 @@ func _on_employees_changed() -> void:
 	_ui_dirty = true
 
 
-func _update_order_label() -> void:
-	var lines: Array[String] = []
-	lines.append("待处理订单：%d/%d" % [pending_orders.size(), QUEUE_CAPACITY])
-	for pending in pending_orders:
-		var order: Resource = pending["order"]
-		var timer: Timer = pending["timer"]
-		lines.append("- %s 剩余 %.1fs（超时流失）" % [order.car_name, timer.time_left])
-	lines.append("工位使用中：%d/%d" % [active_jobs.size(), game_state.station_count()])
-	for job in active_jobs:
+func _on_stations_changed() -> void:
+	_ui_dirty = true
+
+
+func _station_status_text(station: Dictionary) -> String:
+	var worker_id: int = station["worker_id"]
+	var bound_text := "，绑定工人 #%d" % worker_id if worker_id != -1 else "，未绑定"
+	var job := _find_job_by_station(station["id"])
+	var status_text := "空闲"
+	if not job.is_empty():
 		var order: Resource = job["order"]
 		var timer: Timer = job["timer"]
-		lines.append("- %s 剩余 %.1fs" % [order.car_name, timer.time_left])
-	lines.append("最近动态：" + last_result_text)
-	order_label.text = "\n".join(lines)
+		status_text = "工作中（%s 剩余 %.1fs）" % [order.car_name, timer.time_left]
+	return "工位 #%d：%s%s" % [station["id"], status_text, bound_text]
+
+
+# 倒计时文字每帧都在变，但只是给已存在的常驻 Label 重设 .text（不新建节点），
+# 实测这个开销可以忽略（~26 微秒级），不需要挂在 _ui_dirty 脏标记后面
+func _update_dynamic_texts() -> void:
+	for i in range(QUEUE_CAPACITY):
+		var entry: Dictionary = _order_rows[i]
+		var row: HBoxContainer = entry["row"]
+		if i < pending_orders.size():
+			row.visible = true
+			var pending: Dictionary = pending_orders[i]
+			var order: Resource = pending["order"]
+			var timer: Timer = pending["timer"]
+			var text := "%d. %s 剩余 %.1fs" % [i + 1, order.car_name, timer.time_left]
+			var label: Label = entry["label"]
+			if label.text != text:
+				label.text = text
+		else:
+			row.visible = false
+
+	for i in range(_station_rows.size()):
+		if i >= game_state.stations.size():
+			break
+		var entry: Dictionary = _station_rows[i]
+		var text := _station_status_text(game_state.stations[i])
+		var label: Label = entry["label"]
+		if label.text != text:
+			label.text = text
 
 
 func _format_attributes(attrs: Dictionary) -> String:
@@ -373,7 +436,10 @@ func _update_worker_list() -> void:
 		var mentor_id: int = w.get("mentor_apprentice_id", -1)
 		var mentor_text := "，带教学徒 #%d" % mentor_id if mentor_id != -1 else ""
 
-		var new_text := "工人 #%d：%s%s [%s]" % [w["id"], status_text, mentor_text, _format_attributes(w["attributes"])]
+		var station_id: int = game_state.station_of_worker(w["id"])
+		var station_text := "，工位 #%d" % station_id if station_id != -1 else ""
+
+		var new_text := "工人 #%d：%s%s%s [%s]" % [w["id"], status_text, station_text, mentor_text, _format_attributes(w["attributes"])]
 		var label: Label = entry["label"]
 		if label.text != new_text:
 			label.text = new_text
@@ -504,13 +570,118 @@ func _update_labels() -> void:
 	facility_label.text = "设施等级: %d（工位数 %d）" % [game_state.facility_level, game_state.station_count()]
 	upgrade_button.text = "升级工位 (%d)" % game_state.next_upgrade_cost()
 	upgrade_button.disabled = game_state.money < game_state.next_upgrade_cost()
-	repair_button.disabled = not _can_start_job() or pending_orders.is_empty()
 	day_label.text = "第%d月 第%d天" % [game_state.month, game_state.day]
 	hire_apprentice_button.text = "招学徒 (%d)" % game_state.next_apprentice_hire_cost()
 	hire_apprentice_button.disabled = not game_state.can_hire_apprentice()
+	var result_text := "最近动态：" + last_result_text
+	if result_label.text != result_text:
+		result_label.text = result_text
+
+
+func _create_order_row() -> Dictionary:
+	var row := HBoxContainer.new()
+	var status_label := Label.new()
+	row.add_child(status_label)
+	var action_container := HBoxContainer.new()
+	row.add_child(action_container)
+	order_list_container.add_child(row)
+	return {
+		"row": row, "label": status_label, "action_container": action_container,
+		"cached_pending": {}, "cached_idle_station_ids": [-2],
+	}
+
+
+func _rebuild_order_action_widgets(entry: Dictionary, pending: Dictionary, idle_station_ids: Array) -> void:
+	var action_container: HBoxContainer = entry["action_container"]
+	for child in action_container.get_children():
+		child.queue_free()
+	if not pending.is_empty():
+		if idle_station_ids.is_empty():
+			var hint_label := Label.new()
+			hint_label.text = "无可用工位"
+			action_container.add_child(hint_label)
+		else:
+			var station_option := OptionButton.new()
+			for s_id in idle_station_ids:
+				station_option.add_item("工位 #%d" % s_id)
+				station_option.set_item_metadata(station_option.item_count - 1, s_id)
+			action_container.add_child(station_option)
+
+			var assign_button := Button.new()
+			assign_button.text = "分配"
+			assign_button.pressed.connect(_on_assign_order_pressed.bind(pending, station_option))
+			action_container.add_child(assign_button)
+	entry["cached_pending"] = pending
+	entry["cached_idle_station_ids"] = idle_station_ids
+
+
+func _update_pending_order_list() -> void:
+	var idle_station_ids: Array = game_state.idle_stations().map(func(s: Dictionary) -> int: return s["id"])
+	for i in range(QUEUE_CAPACITY):
+		var entry: Dictionary = _order_rows[i]
+		var pending: Dictionary = pending_orders[i] if i < pending_orders.size() else {}
+		if pending != entry["cached_pending"] or idle_station_ids != entry["cached_idle_station_ids"]:
+			_rebuild_order_action_widgets(entry, pending, idle_station_ids)
+
+
+func _rebuild_station_action_widgets(entry: Dictionary, station_id: int, worker_id: int, available_worker_ids: Array) -> void:
+	var action_container: HBoxContainer = entry["action_container"]
+	for child in action_container.get_children():
+		child.queue_free()
+	if worker_id != -1:
+		var unbind_button := Button.new()
+		unbind_button.text = "解绑"
+		unbind_button.pressed.connect(_on_unbind_station_pressed.bind(station_id))
+		action_container.add_child(unbind_button)
+	elif not available_worker_ids.is_empty():
+		var worker_option := OptionButton.new()
+		for w_id in available_worker_ids:
+			worker_option.add_item("工人 #%d" % w_id)
+			worker_option.set_item_metadata(worker_option.item_count - 1, w_id)
+		action_container.add_child(worker_option)
+
+		var bind_button := Button.new()
+		bind_button.text = "绑定"
+		bind_button.pressed.connect(_on_bind_station_pressed.bind(station_id, worker_option))
+		action_container.add_child(bind_button)
+	entry["bound_worker_id"] = worker_id
+	entry["available_worker_ids"] = available_worker_ids
+
+
+func _update_station_list() -> void:
+	var bound_worker_ids: Array = game_state.bound_worker_ids()
+	for i in range(game_state.stations.size()):
+		var s: Dictionary = game_state.stations[i]
+		var entry: Dictionary
+		if i < _station_rows.size():
+			entry = _station_rows[i]
+		else:
+			var row := HBoxContainer.new()
+			var label := Label.new()
+			row.add_child(label)
+			var action_container := HBoxContainer.new()
+			row.add_child(action_container)
+			entry = {
+				"row": row, "label": label, "action_container": action_container,
+				"bound_worker_id": -2, "available_worker_ids": [-2],
+			}
+			_station_rows.append(entry)
+			station_list_container.add_child(row)
+
+		var worker_id: int = s["worker_id"]
+		var available_worker_ids: Array = []
+		if worker_id == -1:
+			for w in game_state.workers():
+				if not bound_worker_ids.has(w["id"]):
+					available_worker_ids.append(w["id"])
+
+		if worker_id != entry["bound_worker_id"] or available_worker_ids != entry["available_worker_ids"]:
+			_rebuild_station_action_widgets(entry, s["id"], worker_id, available_worker_ids)
 
 
 func _update_all() -> void:
 	_update_labels()
 	_update_worker_list()
 	_update_apprentice_list()
+	_update_station_list()
+	_update_pending_order_list()

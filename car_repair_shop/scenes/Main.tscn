@@ -58,11 +58,27 @@ text = "招学徒 (30)"
 [node name="ApprenticeListContainer" type="VBoxContainer" parent="UI" unique_id=1219550046]
 layout_mode = 2
 
-[node name="RepairButton" type="Button" parent="UI" unique_id=810011311]
+[node name="StationHeaderRow" type="HBoxContainer" parent="UI" unique_id=2042143425]
 layout_mode = 2
-text = "接单修车"
 
-[node name="OrderLabel" type="Label" parent="UI" unique_id=484800525]
+[node name="StationHeaderLabel" type="Label" parent="UI/StationHeaderRow" unique_id=1467140987]
 layout_mode = 2
-text = "等待接单"
+text = "工位"
+
+[node name="StationListContainer" type="VBoxContainer" parent="UI" unique_id=1825845315]
+layout_mode = 2
+
+[node name="OrderHeaderRow" type="HBoxContainer" parent="UI" unique_id=968383375]
+layout_mode = 2
+
+[node name="OrderHeaderLabel" type="Label" parent="UI/OrderHeaderRow" unique_id=900966430]
+layout_mode = 2
+text = "待处理订单"
+
+[node name="OrderListContainer" type="VBoxContainer" parent="UI" unique_id=2022244783]
+layout_mode = 2
+
+[node name="ResultLabel" type="Label" parent="UI" unique_id=2033812124]
+layout_mode = 2
+text = "最近动态：尚未完成过订单"
 autowrap_mode = 3

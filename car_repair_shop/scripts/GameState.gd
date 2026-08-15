@@ -6,6 +6,7 @@ signal facility_level_changed(new_level: int)
 signal day_changed(new_day: int)
 signal month_changed(new_month: int)
 signal employees_changed()
+signal stations_changed()
 
 # 占位数值：招人机制还没细化，这里先用一个简单的递增费用代替
 const BASE_HIRE_COST := 100
@@ -78,6 +79,12 @@ var month: int = 1
 var employees: Array[Dictionary] = []
 var _next_employee_id: int = 1
 
+# 2026-08-15：工位从"设施等级决定的纯数字"变成可见实体，工人要绑定到具体工位才能接单——
+# 参考带教的"标准关系优于一次性动作"模式，绑一次持续生效，不是每次手动选。
+# {id, worker_id: -1 表示未绑定}。工位只会随设施升级增多，不会减少，不需要删除逻辑
+var stations: Array[Dictionary] = []
+var _next_station_id: int = 1
+
 var _day_timer: Timer
 
 
@@ -87,6 +94,7 @@ func _ready() -> void:
 	_day_timer.autostart = true
 	_day_timer.timeout.connect(_on_day_tick)
 	add_child(_day_timer)
+	_sync_station_count()
 
 
 func _on_day_tick() -> void:
@@ -209,6 +217,7 @@ func upgrade_facility() -> bool:
 	facility_level += 1
 	money_changed.emit(money)
 	facility_level_changed.emit(facility_level)
+	_sync_station_count()
 	return true
 
 
@@ -218,6 +227,64 @@ func payout_multiplier() -> float:
 
 func station_count() -> int:
 	return BASE_STATION_COUNT + STATION_PER_FACILITY_LEVEL * facility_level
+
+
+func _sync_station_count() -> void:
+	var target := station_count()
+	while stations.size() < target:
+		stations.append({"id": _next_station_id, "worker_id": -1})
+		_next_station_id += 1
+	stations_changed.emit()
+
+
+func get_station(id: int) -> Dictionary:
+	for s in stations:
+		if s["id"] == id:
+			return s
+	return {}
+
+
+func station_of_worker(worker_id: int) -> int:
+	for s in stations:
+		if s["worker_id"] == worker_id:
+			return s["id"]
+	return -1
+
+
+func bound_worker_ids() -> Array:
+	return stations.filter(func(s: Dictionary) -> bool: return s["worker_id"] != -1) \
+		.map(func(s: Dictionary) -> int: return s["worker_id"])
+
+
+# 每个工人同时只能绑一个工位：绑到新工位时，先把这个工人从原工位那解绑
+func bind_worker_station(worker_id: int, station_id: int) -> bool:
+	var worker := get_employee(worker_id)
+	var station := get_station(station_id)
+	if worker.is_empty() or worker["kind"] != "worker" or station.is_empty():
+		return false
+	for s in stations:
+		if s["worker_id"] == worker_id:
+			s["worker_id"] = -1
+	station["worker_id"] = worker_id
+	stations_changed.emit()
+	return true
+
+
+func unbind_worker_station(station_id: int) -> void:
+	var station := get_station(station_id)
+	if station.is_empty():
+		return
+	station["worker_id"] = -1
+	stations_changed.emit()
+
+
+# 有工人绑定、且该工人当前空闲，才算能接新单的工位
+func idle_stations() -> Array[Dictionary]:
+	return stations.filter(func(s: Dictionary) -> bool:
+		if s["worker_id"] == -1:
+			return false
+		var w := get_employee(s["worker_id"])
+		return not w.is_empty() and not w["busy"])
 
 
 func next_apprentice_hire_cost() -> int:
