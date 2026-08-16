@@ -66,6 +66,14 @@ const MENTOR_TIME_REDUCTION_RATIO := 0.2
 const MENTOR_POINTS_BASE := 1
 const MENTOR_PRECISION_DIVISOR := 10
 
+# 2026-08-16：车型按属性加权耗时——每种车型对应一项主技能（OrderType.primary_attribute），
+# 工人该项技能值以基准线（贴近 WORKER_ATTR_MIN/MAX 的中点）为 1.0x 倍率，每高/低于基准 1 点
+# 耗时 ±3%，钳制在 [0.7x, 1.3x] 避免极端值把耗时压到不合理区间。数值占位待平衡
+const REPAIR_TIME_BASELINE_ATTR := 20
+const REPAIR_TIME_PERCENT_PER_POINT := 0.03
+const REPAIR_TIME_MULTIPLIER_MIN := 0.7
+const REPAIR_TIME_MULTIPLIER_MAX := 1.3
+
 const STARTING_MONEY := 100
 
 var money: int = STARTING_MONEY
@@ -426,6 +434,12 @@ func mentor_of(apprentice_id: int) -> int:
 		if w.get("mentor_apprentice_id", -1) == apprentice_id:
 			return w["id"]
 	return -1
+
+
+func repair_time_multiplier(attribute_value: int) -> float:
+	var diff := attribute_value - REPAIR_TIME_BASELINE_ATTR
+	var multiplier := 1.0 - REPAIR_TIME_PERCENT_PER_POINT * diff
+	return clamp(multiplier, REPAIR_TIME_MULTIPLIER_MIN, REPAIR_TIME_MULTIPLIER_MAX)
 
 
 func mentor_points_earned(master_precision: int) -> int:
