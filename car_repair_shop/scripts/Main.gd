@@ -1,9 +1,5 @@
 extends Node2D
 
-# 占位数值：学徒实习复用 OrderType 车型池，报酬/经验按车型难度打折，具体系数之后再平衡
-const APPRENTICE_PAYOUT_RATE := 0.3
-const APPRENTICE_XP_PER_REPUTATION := 15
-
 # 占位数值：订单队列/超时流失机制刚搭骨架，容量/间隔/超时/惩罚都是随手定的，之后再平衡
 const QUEUE_CAPACITY := 3
 const ORDER_SPAWN_INTERVAL := 10.0
@@ -44,8 +40,6 @@ const ATTRIBUTE_SHORT_NAMES := {
 
 # 每个工位一个进行中任务：{"order": Resource, "timer": Timer, "employee_id": int, "station_id": int}
 var active_jobs: Array[Dictionary] = []
-# 每个学徒最多一个进行中实习：{"order": Resource, "timer": Timer, "employee_id": int}
-var active_practices: Array[Dictionary] = []
 # 每个学徒最多一个进行中训练：{"course": Resource, "timer": Timer, "employee_id": int}
 var active_trainings: Array[Dictionary] = []
 # 待处理订单队列：{"order": Resource, "timer": Timer}，timer 到期即流失
@@ -257,36 +251,6 @@ func _on_hire_apprentice_button_pressed() -> void:
 	game_state.hire_apprentice()
 
 
-func _on_practice_button_pressed(employee_id: int) -> void:
-	var e: Dictionary = game_state.get_employee(employee_id)
-	if e.is_empty() or e["busy"]:
-		return
-	var available_orders := _get_available_orders()
-	var order: Resource = available_orders[randi() % available_orders.size()]
-	var timer := Timer.new()
-	timer.one_shot = true
-	timer.wait_time = order.repair_time
-	add_child(timer)
-	var practice := {"order": order, "timer": timer, "employee_id": employee_id}
-	timer.timeout.connect(_on_practice_complete.bind(practice))
-	active_practices.append(practice)
-	game_state.set_employee_busy(employee_id, true)
-	timer.start()
-	_ui_dirty = true
-
-
-func _on_practice_complete(practice: Dictionary) -> void:
-	var order: Resource = practice["order"]
-	var payout: int = roundi(order.payout * APPRENTICE_PAYOUT_RATE)
-	var xp: int = order.reputation_gain * APPRENTICE_XP_PER_REPUTATION
-	game_state.add_money(payout)
-	game_state.add_apprentice_xp(practice["employee_id"], xp)
-	active_practices.erase(practice)
-	(practice["timer"] as Timer).queue_free()
-	game_state.set_employee_busy(practice["employee_id"], false)
-	_ui_dirty = true
-
-
 func _on_exam_button_pressed(employee_id: int) -> void:
 	var result: Dictionary = game_state.take_exam(employee_id)
 	if result.is_empty():
@@ -467,11 +431,6 @@ func _create_apprentice_row(apprentice_id: int) -> Dictionary:
 	var status_label := Label.new()
 	row.add_child(status_label)
 
-	var practice_button := Button.new()
-	practice_button.text = "实习"
-	practice_button.pressed.connect(_on_practice_button_pressed.bind(apprentice_id))
-	row.add_child(practice_button)
-
 	var exam_button := Button.new()
 	exam_button.pressed.connect(_on_exam_button_pressed.bind(apprentice_id))
 	row.add_child(exam_button)
@@ -497,7 +456,7 @@ func _create_apprentice_row(apprentice_id: int) -> Dictionary:
 
 	apprentice_list_container.add_child(block)
 	return {
-		"block": block, "status_label": status_label, "practice_button": practice_button,
+		"block": block, "status_label": status_label,
 		"exam_button": exam_button, "course_buttons": course_buttons, "alloc_row": alloc_row,
 	}
 
@@ -515,13 +474,9 @@ func _update_apprentice_list() -> void:
 
 		var status_text := "空闲"
 		if a["busy"]:
-			var practice := _find_by_employee(active_practices, a["id"])
 			var training := _find_by_employee(active_trainings, a["id"])
 			var mentor_job := _find_mentor_job_by_apprentice(a["id"])
-			if not practice.is_empty():
-				var order: Resource = practice["order"]
-				status_text = "实习中（%s）" % order.car_name
-			elif not training.is_empty():
+			if not training.is_empty():
 				var course: Resource = training["course"]
 				status_text = "训练中（%s）" % course.course_name
 			elif not mentor_job.is_empty():
@@ -533,11 +488,9 @@ func _update_apprentice_list() -> void:
 		var pending_points: int = a.get("pending_points", 0)
 		var mentor_worker_id: int = game_state.mentor_of(a["id"])
 		var mentor_text := "，带教师傅 #%d" % mentor_worker_id if mentor_worker_id != -1 else ""
-		var new_status_text := "学徒 #%d：Lv%d，经验 %d/%d，月薪 %d，待分配点数 %d，%s%s [%s]" % [
+		var new_status_text := "学徒 #%d：Lv%d，月薪 %d，待分配点数 %d，%s%s [%s]" % [
 			a["id"],
 			a["level"],
-			a["xp"],
-			game_state.apprentice_xp_required_for_level(a["level"]),
 			game_state.apprentice_salary_for_level(a["level"]),
 			pending_points,
 			status_text,
@@ -547,9 +500,6 @@ func _update_apprentice_list() -> void:
 		var status_label: Label = entry["status_label"]
 		if status_label.text != new_status_text:
 			status_label.text = new_status_text
-
-		var practice_button: Button = entry["practice_button"]
-		practice_button.disabled = a["busy"]
 
 		var exam_button: Button = entry["exam_button"]
 		var new_exam_text := "考试 (%d，通过率%.0f%%)" % [game_state.EXAM_COST, game_state.exam_pass_rate(a["id"])]

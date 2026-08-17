@@ -31,8 +31,6 @@ const BASE_APPRENTICE_HIRE_COST := 30
 const APPRENTICE_HIRE_COST_STEP := 10
 const APPRENTICE_SALARY_BASE := 15
 const APPRENTICE_SALARY_LEVEL_STEP := 5
-const APPRENTICE_XP_BASE := 50
-const APPRENTICE_XP_LEVEL_STEP := 20
 
 # 2026-08-09：员工属性系统骨架。5 项属性（机械/电气/钣喷偏硬技能，细心/沟通偏软技能）。
 # 2026-08-10：区分工人/学徒的起始值——工人是已出师的熟练工，随机值贴近一级考试线；
@@ -82,8 +80,8 @@ var facility_level: int = 0
 var day: int = 1
 var month: int = 1
 
-# 每个工人/学徒都是独立个体，不是数字：{id, kind: "worker"|"apprentice", busy, level, xp}
-# level/xp 只对学徒有意义，工人恒为 0
+# 每个工人/学徒都是独立个体，不是数字：{id, kind: "worker"|"apprentice", busy, level}
+# level 只对学徒有意义（考试晋级），工人恒为 0
 var employees: Array[Dictionary] = []
 var _next_employee_id: int = 1
 
@@ -204,7 +202,7 @@ func hire_worker() -> bool:
 		return false
 	money -= cost
 	employees.append({
-		"id": _next_employee_id, "kind": "worker", "busy": false, "level": 0, "xp": 0,
+		"id": _next_employee_id, "kind": "worker", "busy": false, "level": 0,
 		"attributes": _random_worker_attributes(), "mentor_apprentice_id": -1,
 	})
 	_next_employee_id += 1
@@ -312,25 +310,13 @@ func hire_apprentice() -> bool:
 		return false
 	money -= next_apprentice_hire_cost()
 	employees.append({
-		"id": _next_employee_id, "kind": "apprentice", "busy": false, "level": 0, "xp": 0,
+		"id": _next_employee_id, "kind": "apprentice", "busy": false, "level": 0,
 		"attributes": _base_apprentice_attributes(), "pending_points": 0,
 	})
 	_next_employee_id += 1
 	money_changed.emit(money)
 	employees_changed.emit()
 	return true
-
-
-func apprentice_xp_required_for_level(level: int) -> int:
-	return APPRENTICE_XP_BASE + APPRENTICE_XP_LEVEL_STEP * level
-
-
-func add_apprentice_xp(id: int, amount: int) -> void:
-	var e := get_employee(id)
-	if e.is_empty():
-		return
-	e["xp"] += amount
-	employees_changed.emit()
 
 
 func exam_attribute_threshold(level: int) -> int:
