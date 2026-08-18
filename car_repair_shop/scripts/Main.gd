@@ -517,8 +517,12 @@ func _update_labels() -> void:
 	hire_button.text = "雇佣工人 (%d)" % game_state.next_hire_cost()
 	hire_button.disabled = game_state.money < game_state.next_hire_cost()
 	facility_label.text = "设施等级: %d（工位数 %d）" % [game_state.facility_level, game_state.station_count()]
-	upgrade_button.text = "升级工位 (%d)" % game_state.next_upgrade_cost()
-	upgrade_button.disabled = game_state.money < game_state.next_upgrade_cost()
+	if game_state.is_facility_maxed():
+		upgrade_button.text = "已满级"
+		upgrade_button.disabled = true
+	else:
+		upgrade_button.text = "升级工位 (%d)" % game_state.next_upgrade_cost()
+		upgrade_button.disabled = game_state.money < game_state.next_upgrade_cost()
 	day_label.text = "第%d月 第%d天" % [game_state.month, game_state.day]
 	hire_apprentice_button.text = "招学徒 (%d)" % game_state.next_apprentice_hire_cost()
 	hire_apprentice_button.disabled = not game_state.can_hire_apprentice()

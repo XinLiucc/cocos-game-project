@@ -21,6 +21,9 @@ const UPGRADE_COST_STEP := 100
 const FACILITY_PAYOUT_BONUS := 0.15
 const BASE_STATION_COUNT := 1
 const STATION_PER_FACILITY_LEVEL := 1
+# 2026-08-18：工位数封顶在 5 个，设施等级也跟着封顶（到顶即终局形态，收入倍率定格）——
+# 不封顶的话工位/费用会无限往上滚，游戏没有"设施线已经点满"的终点感
+const MAX_STATION_COUNT := 5
 
 # 占位数值：一天等于多少秒，开发阶段调短方便测试，正式数值以后再定
 const DAYS_PER_MONTH := 30
@@ -213,11 +216,21 @@ func hire_worker() -> bool:
 	return true
 
 
+func max_facility_level() -> int:
+	return (MAX_STATION_COUNT - BASE_STATION_COUNT) / STATION_PER_FACILITY_LEVEL
+
+
+func is_facility_maxed() -> bool:
+	return facility_level >= max_facility_level()
+
+
 func next_upgrade_cost() -> int:
 	return BASE_UPGRADE_COST + UPGRADE_COST_STEP * facility_level
 
 
 func upgrade_facility() -> bool:
+	if is_facility_maxed():
+		return false
 	var cost := next_upgrade_cost()
 	if money < cost:
 		return false
