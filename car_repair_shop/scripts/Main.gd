@@ -163,8 +163,6 @@ func _start_job(station_id: int, worker: Dictionary, pending: Dictionary) -> voi
 	var timer := Timer.new()
 	timer.one_shot = true
 	timer.wait_time = order.repair_time * game_state.repair_time_multiplier(skill_value)
-	if apprentice_id != -1:
-		timer.wait_time *= (1.0 - game_state.MENTOR_TIME_REDUCTION_RATIO)
 	add_child(timer)
 	var job := {
 		"order": order, "timer": timer, "employee_id": worker["id"],
