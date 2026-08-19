@@ -410,7 +410,7 @@ func _update_worker_list() -> void:
 		var available_ids: Array = []
 		if mentor_id == -1:
 			for a in game_state.apprentices():
-				if not bound_apprentice_ids.has(a["id"]):
+				if not bound_apprentice_ids.has(a["id"]) and not a.get("qualified", false):
 					available_ids.append(a["id"])
 
 		if mentor_id != entry["mentor_id"] or available_ids != entry["available_ids"]:
@@ -473,26 +473,37 @@ func _update_apprentice_list() -> void:
 		var status_text := "空闲"
 		if a["busy"]:
 			var training := _find_by_employee(active_trainings, a["id"])
+			var own_job := _find_by_employee(active_jobs, a["id"])
 			var mentor_job := _find_mentor_job_by_apprentice(a["id"])
 			if not training.is_empty():
 				var course: Resource = training["course"]
 				status_text = "训练中（%s）" % course.course_name
+			elif not own_job.is_empty():
+				var order: Resource = own_job["order"]
+				status_text = "工作中（%s）" % order.car_name
 			elif not mentor_job.is_empty():
 				var order: Resource = mentor_job["order"]
 				status_text = "带教中（%s，师傅#%d）" % [order.car_name, mentor_job["employee_id"]]
 			else:
 				status_text = "忙碌中"
 
+		var qualified: bool = a.get("qualified", false)
+		var salary: int = game_state.qualified_apprentice_salary() if qualified else game_state.apprentice_salary_for_level(a["level"])
+		var qualified_tag := "[已转正] " if qualified else ""
 		var pending_points: int = a.get("pending_points", 0)
 		var mentor_worker_id: int = game_state.mentor_of(a["id"])
 		var mentor_text := "，带教师傅 #%d" % mentor_worker_id if mentor_worker_id != -1 else ""
-		var new_status_text := "学徒 #%d：Lv%d，月薪 %d，待分配点数 %d，%s%s [%s]" % [
+		var station_id: int = game_state.station_of_worker(a["id"])
+		var station_text := "，工位 #%d" % station_id if station_id != -1 else ""
+		var new_status_text := "%s学徒 #%d：Lv%d，月薪 %d，待分配点数 %d，%s%s%s [%s]" % [
+			qualified_tag,
 			a["id"],
 			a["level"],
-			game_state.apprentice_salary_for_level(a["level"]),
+			salary,
 			pending_points,
 			status_text,
 			mentor_text,
+			station_text,
 			_format_attributes(a["attributes"]),
 		]
 		var status_label: Label = entry["status_label"]
@@ -624,7 +635,7 @@ func _update_station_list() -> void:
 		var worker_id: int = s["worker_id"]
 		var available_worker_ids: Array = []
 		if worker_id == -1:
-			for w in game_state.workers():
+			for w in game_state.station_eligible_employees():
 				if not bound_worker_ids.has(w["id"]):
 					available_worker_ids.append(w["id"])
 

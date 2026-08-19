@@ -59,6 +59,12 @@ const EXAM_PASS_RATE_PENALTY_PER_POINT := 8.0
 const EXAM_PASS_RATE_MIN := 1.0
 const EXAM_PASS_RATE_MAX := 100.0
 
+# 2026-08-19：考试改定位为"资质认证"——第一次通过就转正为普工（qualified=true），
+# 自动脱离带教关系、获得绑定工位独立接单的资格，工资按普通工人打折（内部培养成本已经花过了）。
+# 后续考试用于冲更高职级（工程师等），具体设计和门槛这次先不做，只留级别上限占位。
+const MAX_APPRENTICE_LEVEL := 10
+const QUALIFIED_SALARY_RATIO := 0.8
+
 # 2026-08-12：带教——属性成长第二条路径。工人可以"带"一个学徒，这是长期绑定关系而不是每次
 # 手动触发的动作：师傅接单干活时，只要绑定的学徒当前空闲，就自动一起进这单（完工后学徒获得
 # 整数属性点），学徒不空闲时师傅照常独自接单。点数数量由师傅的"细心"属性决定（细心越高教得
@@ -86,7 +92,9 @@ var day: int = 1
 var month: int = 1
 
 # 每个工人/学徒都是独立个体，不是数字：{id, kind: "worker"|"apprentice", busy, level}
-# level 只对学徒有意义（考试晋级），工人恒为 0
+# level 只对学徒有意义（考试晋级），工人恒为 0。qualified 只对学徒有意义——
+# 考试第一次通过后转正为"普工"，能独立接单，但仍保留 kind="apprentice"
+# 好继续训练/考更高职级（见 take_exam）
 var employees: Array[Dictionary] = []
 var _next_employee_id: int = 1
 
@@ -123,6 +131,8 @@ func _on_month_end() -> void:
 	for e in employees:
 		if e["kind"] == "worker":
 			total_salary += WORKER_SALARY_PER_HEAD
+		elif e.get("qualified", false):
+			total_salary += qualified_apprentice_salary()
 		else:
 			total_salary += apprentice_salary_for_level(e["level"])
 	if total_salary <= 0:
@@ -168,6 +178,15 @@ func workers() -> Array[Dictionary]:
 
 func apprentices() -> Array[Dictionary]:
 	return employees.filter(func(e: Dictionary) -> bool: return e["kind"] == "apprentice")
+
+
+# 转正学徒（qualified=true）跟正式工人一样能绑工位独立接单，工位分配面板用这个而不是 workers()
+func station_eligible_employees() -> Array[Dictionary]:
+	return employees.filter(func(e: Dictionary) -> bool: return e["kind"] == "worker" or e.get("qualified", false))
+
+
+func qualified_apprentice_salary() -> int:
+	return roundi(WORKER_SALARY_PER_HEAD * QUALIFIED_SALARY_RATIO)
 
 
 func worker_count() -> int:
@@ -281,7 +300,9 @@ func bound_worker_ids() -> Array:
 func bind_worker_station(worker_id: int, station_id: int) -> bool:
 	var worker := get_employee(worker_id)
 	var station := get_station(station_id)
-	if worker.is_empty() or worker["kind"] != "worker" or station.is_empty():
+	if worker.is_empty() or station.is_empty():
+		return false
+	if worker["kind"] != "worker" and not worker.get("qualified", false):
 		return false
 	for s in stations:
 		if s["worker_id"] == worker_id:
@@ -326,7 +347,7 @@ func hire_apprentice() -> bool:
 	money -= next_apprentice_hire_cost()
 	employees.append({
 		"id": _next_employee_id, "kind": "apprentice", "busy": false, "level": 0,
-		"attributes": _base_apprentice_attributes(), "pending_points": 0,
+		"attributes": _base_apprentice_attributes(), "pending_points": 0, "qualified": false,
 	})
 	_next_employee_id += 1
 	money_changed.emit(money)
@@ -352,10 +373,14 @@ func can_take_exam(id: int) -> bool:
 	var e := get_employee(id)
 	if e.is_empty() or e["kind"] != "apprentice" or e["busy"]:
 		return false
+	if e["level"] >= MAX_APPRENTICE_LEVEL:
+		return false
 	return money >= EXAM_COST
 
 
-# 返回空字典表示没能开考；否则 {"passed": bool, "rate": float}——报名费无论成败都扣
+# 返回空字典表示没能开考；否则 {"passed": bool, "rate": float}——报名费无论成败都扣。
+# 第一次通过（qualified 从 false 变 true）即视为拿到资质转正：自动脱离带教关系，
+# 之后能绑工位独立接单、工资改走 qualified_apprentice_salary()
 func take_exam(id: int) -> Dictionary:
 	if not can_take_exam(id):
 		return {}
@@ -364,7 +389,11 @@ func take_exam(id: int) -> Dictionary:
 	var passed := randf() * 100.0 < rate
 	if passed:
 		var e := get_employee(id)
+		var newly_qualified: bool = not e.get("qualified", false)
 		e["level"] += 1
+		if newly_qualified:
+			e["qualified"] = true
+			_unbind_apprentice_from_mentor(id)
 	money_changed.emit(money)
 	employees_changed.emit()
 	return {"passed": passed, "rate": rate}
@@ -406,7 +435,7 @@ func bind_mentor(worker_id: int, apprentice_id: int) -> bool:
 	var apprentice := get_employee(apprentice_id)
 	if worker.is_empty() or worker["kind"] != "worker":
 		return false
-	if apprentice.is_empty() or apprentice["kind"] != "apprentice":
+	if apprentice.is_empty() or apprentice["kind"] != "apprentice" or apprentice.get("qualified", false):
 		return false
 	for e in workers():
 		if e.get("mentor_apprentice_id", -1) == apprentice_id:
@@ -422,6 +451,12 @@ func unbind_mentor(worker_id: int) -> void:
 		return
 	worker["mentor_apprentice_id"] = -1
 	employees_changed.emit()
+
+
+func _unbind_apprentice_from_mentor(apprentice_id: int) -> void:
+	for w in workers():
+		if w.get("mentor_apprentice_id", -1) == apprentice_id:
+			w["mentor_apprentice_id"] = -1
 
 
 func bound_apprentice_ids() -> Array:
