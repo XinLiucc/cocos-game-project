@@ -8,9 +8,9 @@ signal month_changed(new_month: int)
 signal employees_changed()
 signal stations_changed()
 
-# 占位数值：招人机制还没细化，这里先用一个简单的递增费用代替
-const BASE_HIRE_COST := 100
-const HIRE_COST_STEP := 50
+# 2026-08-20：招人价格固定，不再随人数递增——更贴近现实（不会因为多雇一个人就把工资
+# 行情抬高）。真正约束招人数量的是 max_headcount()（声望驱动的编制上限，工人/学徒共用）
+const WORKER_HIRE_COST := 100
 const WORKER_SALARY_PER_HEAD := 20
 
 # 占位数值：设施升级机制也没细化，先用递增费用 + 固定收入加成代替
@@ -25,13 +25,19 @@ const STATION_PER_FACILITY_LEVEL := 1
 # 不封顶的话工位/费用会无限往上滚，游戏没有"设施线已经点满"的终点感
 const MAX_STATION_COUNT := 5
 
+# 2026-08-20：总编制（工人+学徒共用一个池，转正学徒继续占坑不释放）由声望驱动，
+# 起步给 2 个坑（保证开局能雇 1 工人 + 1 学徒），每攒 15 点声望 +1 坑，封顶 5——
+# 跟工位数上限对齐，避免编制超过工位数、招了人却没工位可用
+const HEADCOUNT_BASE := 2
+const REPUTATION_PER_HEADCOUNT_SLOT := 15
+const MAX_HEADCOUNT := 5
+
 # 占位数值：一天等于多少秒，开发阶段调短方便测试，正式数值以后再定
 const DAYS_PER_MONTH := 30
 var seconds_per_day: float = 3.0
 
-# 占位数值：学徒机制还在搭骨架，招募费用/工资/考试门槛都是随手定的，之后要重新平衡
-const BASE_APPRENTICE_HIRE_COST := 30
-const APPRENTICE_HIRE_COST_STEP := 10
+# 占位数值：学徒工资/考试门槛还是随手定的，之后要重新平衡
+const APPRENTICE_HIRE_COST := 30
 const APPRENTICE_SALARY_BASE := 15
 const APPRENTICE_SALARY_LEVEL_STEP := 5
 
@@ -216,15 +222,26 @@ func set_employee_busy(id: int, busy: bool) -> void:
 	employees_changed.emit()
 
 
+func max_headcount() -> int:
+	return min(MAX_HEADCOUNT, HEADCOUNT_BASE + floori(reputation / float(REPUTATION_PER_HEADCOUNT_SLOT)))
+
+
+func total_headcount() -> int:
+	return employees.size()
+
+
 func next_hire_cost() -> int:
-	return BASE_HIRE_COST + HIRE_COST_STEP * worker_count()
+	return WORKER_HIRE_COST
+
+
+func can_hire_worker() -> bool:
+	return total_headcount() < max_headcount() and money >= WORKER_HIRE_COST
 
 
 func hire_worker() -> bool:
-	var cost := next_hire_cost()
-	if money < cost:
+	if not can_hire_worker():
 		return false
-	money -= cost
+	money -= WORKER_HIRE_COST
 	employees.append({
 		"id": _next_employee_id, "kind": "worker", "busy": false, "level": 0,
 		"attributes": _random_worker_attributes(), "mentor_apprentice_id": -1,
@@ -330,7 +347,7 @@ func idle_stations() -> Array[Dictionary]:
 
 
 func next_apprentice_hire_cost() -> int:
-	return BASE_APPRENTICE_HIRE_COST + APPRENTICE_HIRE_COST_STEP * apprentice_count()
+	return APPRENTICE_HIRE_COST
 
 
 func apprentice_salary_for_level(level: int) -> int:
@@ -338,13 +355,13 @@ func apprentice_salary_for_level(level: int) -> int:
 
 
 func can_hire_apprentice() -> bool:
-	return worker_count() >= 1 and money >= next_apprentice_hire_cost()
+	return worker_count() >= 1 and total_headcount() < max_headcount() and money >= APPRENTICE_HIRE_COST
 
 
 func hire_apprentice() -> bool:
 	if not can_hire_apprentice():
 		return false
-	money -= next_apprentice_hire_cost()
+	money -= APPRENTICE_HIRE_COST
 	employees.append({
 		"id": _next_employee_id, "kind": "apprentice", "busy": false, "level": 0,
 		"attributes": _base_apprentice_attributes(), "pending_points": 0, "qualified": false,

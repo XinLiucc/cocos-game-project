@@ -524,9 +524,12 @@ func _update_apprentice_list() -> void:
 
 
 func _update_labels() -> void:
-	money_label.text = "金钱: %d   口碑: %d" % [game_state.money, game_state.reputation]
+	money_label.text = "金钱: %d   口碑: %d   编制: %d/%d" % [
+		game_state.money, game_state.reputation,
+		game_state.total_headcount(), game_state.max_headcount(),
+	]
 	hire_button.text = "雇佣工人 (%d)" % game_state.next_hire_cost()
-	hire_button.disabled = game_state.money < game_state.next_hire_cost()
+	hire_button.disabled = not game_state.can_hire_worker()
 	facility_label.text = "设施等级: %d（工位数 %d）" % [game_state.facility_level, game_state.station_count()]
 	if game_state.is_facility_maxed():
 		upgrade_button.text = "已满级"
