@@ -6,7 +6,7 @@
 script = ExtResource("1_2fu6b")
 car_name = "跑车"
 repair_time = 3.5
-payout = 120
+payout = 180
 reputation_gain = 3
 min_reputation = 25
 primary_attribute = "electrical"
