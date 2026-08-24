@@ -188,8 +188,9 @@ func _on_job_complete(job: Dictionary) -> void:
 		var points: int = game_state.mentor_points_earned(master["attributes"]["precision"])
 		game_state.add_attribute_points(apprentice_id, points)
 		game_state.set_employee_busy(apprentice_id, false)
-		last_result_text = "带教完成：%s，收入 %d，口碑 +%d，学徒 #%d 获得 %d 点属性点" % [
-			order.car_name, actual_payout, order.reputation_gain, apprentice_id, points,
+		var apprentice: Dictionary = game_state.get_employee(apprentice_id)
+		last_result_text = "带教完成：%s，收入 %d，口碑 +%d，学徒 %s 获得 %d 点属性点" % [
+			order.car_name, actual_payout, order.reputation_gain, apprentice["name"], points,
 		]
 	else:
 		last_result_text = "完成：%s，收入 %d，口碑 +%d" % [order.car_name, actual_payout, order.reputation_gain]
@@ -253,11 +254,11 @@ func _on_exam_button_pressed(employee_id: int) -> void:
 	var result: Dictionary = game_state.take_exam(employee_id)
 	if result.is_empty():
 		return
+	var e: Dictionary = game_state.get_employee(employee_id)
 	if result["passed"]:
-		var e: Dictionary = game_state.get_employee(employee_id)
-		last_result_text = "考试：学徒 #%d 通过（概率%.0f%%），晋升至 Lv%d" % [employee_id, result["rate"], e["level"]]
+		last_result_text = "考试：学徒 %s 通过（概率%.0f%%），晋升至 Lv%d" % [e["name"], result["rate"], e["level"]]
 	else:
-		last_result_text = "考试：学徒 #%d 未通过（概率%.0f%%），报名费 %d 打水漂" % [employee_id, result["rate"], game_state.EXAM_COST]
+		last_result_text = "考试：学徒 %s 未通过（概率%.0f%%），报名费 %d 打水漂" % [e["name"], result["rate"], game_state.EXAM_COST]
 	_ui_dirty = true
 
 
@@ -297,7 +298,7 @@ func _on_stations_changed() -> void:
 
 func _station_status_text(station: Dictionary) -> String:
 	var worker_id: int = station["worker_id"]
-	var bound_text := "，绑定工人 #%d" % worker_id if worker_id != -1 else "，未绑定"
+	var bound_text := "，绑定工人 %s" % game_state.get_employee(worker_id)["name"] if worker_id != -1 else "，未绑定"
 	var job := _find_job_by_station(station["id"])
 	var status_text := "空闲"
 	if not job.is_empty():
@@ -353,7 +354,7 @@ func _rebuild_worker_action_widgets(entry: Dictionary, worker_id: int, mentor_id
 	elif not available_ids.is_empty():
 		var apprentice_option := OptionButton.new()
 		for a_id in available_ids:
-			apprentice_option.add_item("学徒 #%d" % a_id)
+			apprentice_option.add_item("学徒 %s" % game_state.get_employee(a_id)["name"])
 			apprentice_option.set_item_metadata(apprentice_option.item_count - 1, a_id)
 		action_container.add_child(apprentice_option)
 
@@ -390,19 +391,19 @@ func _update_worker_list() -> void:
 				var order: Resource = job["order"]
 				var apprentice_id: int = job.get("apprentice_id", -1)
 				if apprentice_id != -1:
-					status_text = "带教中（%s，学徒#%d）" % [order.car_name, apprentice_id]
+					status_text = "带教中（%s，学徒%s）" % [order.car_name, game_state.get_employee(apprentice_id)["name"]]
 				else:
 					status_text = "工作中（%s）" % order.car_name
 			else:
 				status_text = "工作中"
 
 		var mentor_id: int = w.get("mentor_apprentice_id", -1)
-		var mentor_text := "，带教学徒 #%d" % mentor_id if mentor_id != -1 else ""
+		var mentor_text := "，带教学徒 %s" % game_state.get_employee(mentor_id)["name"] if mentor_id != -1 else ""
 
 		var station_id: int = game_state.station_of_worker(w["id"])
 		var station_text := "，工位 #%d" % station_id if station_id != -1 else ""
 
-		var new_text := "工人 #%d：%s%s%s [%s]" % [w["id"], status_text, station_text, mentor_text, _format_attributes(w["attributes"])]
+		var new_text := "工人 %s：%s%s%s [%s]" % [w["name"], status_text, station_text, mentor_text, _format_attributes(w["attributes"])]
 		var label: Label = entry["label"]
 		if label.text != new_text:
 			label.text = new_text
@@ -483,7 +484,7 @@ func _update_apprentice_list() -> void:
 				status_text = "工作中（%s）" % order.car_name
 			elif not mentor_job.is_empty():
 				var order: Resource = mentor_job["order"]
-				status_text = "带教中（%s，师傅#%d）" % [order.car_name, mentor_job["employee_id"]]
+				status_text = "带教中（%s，师傅%s）" % [order.car_name, game_state.get_employee(mentor_job["employee_id"])["name"]]
 			else:
 				status_text = "忙碌中"
 
@@ -492,12 +493,12 @@ func _update_apprentice_list() -> void:
 		var qualified_tag := "[已转正] " if qualified else ""
 		var pending_points: int = a.get("pending_points", 0)
 		var mentor_worker_id: int = game_state.mentor_of(a["id"])
-		var mentor_text := "，带教师傅 #%d" % mentor_worker_id if mentor_worker_id != -1 else ""
+		var mentor_text := "，带教师傅 %s" % game_state.get_employee(mentor_worker_id)["name"] if mentor_worker_id != -1 else ""
 		var station_id: int = game_state.station_of_worker(a["id"])
 		var station_text := "，工位 #%d" % station_id if station_id != -1 else ""
-		var new_status_text := "%s学徒 #%d：Lv%d，月薪 %d，待分配点数 %d，%s%s%s [%s]" % [
+		var new_status_text := "%s学徒 %s：Lv%d，月薪 %d，待分配点数 %d，%s%s%s [%s]" % [
 			qualified_tag,
-			a["id"],
+			a["name"],
 			a["level"],
 			salary,
 			pending_points,
@@ -603,7 +604,7 @@ func _rebuild_station_action_widgets(entry: Dictionary, station_id: int, worker_
 	elif not available_worker_ids.is_empty():
 		var worker_option := OptionButton.new()
 		for w_id in available_worker_ids:
-			worker_option.add_item("工人 #%d" % w_id)
+			worker_option.add_item("工人 %s" % game_state.get_employee(w_id)["name"])
 			worker_option.set_item_metadata(worker_option.item_count - 1, w_id)
 		action_container.add_child(worker_option)
 

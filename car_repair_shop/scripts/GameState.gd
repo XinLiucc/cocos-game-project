@@ -50,6 +50,20 @@ const WORKER_ATTR_MIN := 15
 const WORKER_ATTR_MAX := 25
 const APPRENTICE_ATTR_BASE := 5
 
+# 员工命名：入职时随机分配姓氏+双字名，不可修改，UI 里用名字完全替代 #编号显示
+const _SURNAMES := [
+	"王", "李", "张", "刘", "陈", "杨", "赵", "黄", "周", "吴",
+	"徐", "孙", "马", "朱", "胡", "郭", "何", "高", "林", "罗",
+	"郑", "梁", "谢", "宋", "唐", "许", "韩", "冯", "邓", "曹",
+]
+const _GIVEN_NAME_CHARS := [
+	"伟", "芳", "娜", "敏", "静", "丽", "强", "磊", "军", "洋",
+	"勇", "艳", "杰", "娟", "涛", "明", "超", "霞", "平", "刚",
+	"兰", "秀", "英", "华", "玉", "梅", "燕", "婷", "慧", "萍",
+	"洁", "欣", "悦", "宇", "浩", "辰", "阳", "宁", "昊", "睿",
+	"轩", "泽", "宸", "航", "博", "晨", "曦", "瑞", "嘉", "雨",
+]
+
 # 训练：学徒花钱选一门课，精准培养对应属性。属性总和越接近软上限，单次涨幅越小
 # （留个尾部不会完全练不动），具体课程数值见 resources/courses/*.tres
 const ATTRIBUTE_SOFT_CAP := 150.0
@@ -164,6 +178,23 @@ func _random_worker_attributes() -> Dictionary:
 	return attrs
 
 
+func _random_employee_name() -> String:
+	var existing_names: Array = employees.map(func(e: Dictionary) -> String: return e.get("name", ""))
+	var candidate := ""
+	var attempts := 0
+	while attempts < 50:
+		var surname: String = _SURNAMES[randi() % _SURNAMES.size()]
+		var given := "%s%s" % [
+			_GIVEN_NAME_CHARS[randi() % _GIVEN_NAME_CHARS.size()],
+			_GIVEN_NAME_CHARS[randi() % _GIVEN_NAME_CHARS.size()],
+		]
+		candidate = surname + given
+		if not existing_names.has(candidate):
+			break
+		attempts += 1
+	return candidate
+
+
 func _base_apprentice_attributes() -> Dictionary:
 	var attrs := {}
 	for key in ATTRIBUTE_KEYS:
@@ -245,6 +276,7 @@ func hire_worker() -> bool:
 	employees.append({
 		"id": _next_employee_id, "kind": "worker", "busy": false, "level": 0,
 		"attributes": _random_worker_attributes(), "mentor_apprentice_id": -1,
+		"name": _random_employee_name(),
 	})
 	_next_employee_id += 1
 	money_changed.emit(money)
@@ -365,6 +397,7 @@ func hire_apprentice() -> bool:
 	employees.append({
 		"id": _next_employee_id, "kind": "apprentice", "busy": false, "level": 0,
 		"attributes": _base_apprentice_attributes(), "pending_points": 0, "qualified": false,
+		"name": _random_employee_name(),
 	})
 	_next_employee_id += 1
 	money_changed.emit(money)
