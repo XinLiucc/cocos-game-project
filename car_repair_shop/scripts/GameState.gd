@@ -217,9 +217,20 @@ func apprentices() -> Array[Dictionary]:
 	return employees.filter(func(e: Dictionary) -> bool: return e["kind"] == "apprentice")
 
 
-# 转正学徒（qualified=true）跟正式工人一样能绑工位独立接单，工位分配面板用这个而不是 workers()
+# 转正学徒（qualified=true）跟正式工人一样能绑工位独立接单，工位分配面板用这个而不是 workers()；
+# 前台赛道的转正学徒不接工位活，排除在外
 func station_eligible_employees() -> Array[Dictionary]:
-	return employees.filter(func(e: Dictionary) -> bool: return e["kind"] == "worker" or e.get("qualified", false))
+	return employees.filter(func(e: Dictionary) -> bool:
+		return e["kind"] == "worker" or (e.get("qualified", false) and e.get("track", "") == "worker"))
+
+
+# 是否有转正前台在岗——前台机制是二元开关：只要有一个在岗，待处理订单就自动分配到空闲工位，
+# 不做人数叠加的连续效率数值
+func front_desk_on_duty() -> bool:
+	for e in employees:
+		if e["kind"] == "apprentice" and e.get("track", "") == "front_desk" and e.get("qualified", false):
+			return true
+	return false
 
 
 func qualified_apprentice_salary() -> int:
@@ -397,7 +408,7 @@ func hire_apprentice() -> bool:
 	employees.append({
 		"id": _next_employee_id, "kind": "apprentice", "busy": false, "level": 0,
 		"attributes": _base_apprentice_attributes(), "pending_points": 0, "qualified": false,
-		"name": _random_employee_name(),
+		"name": _random_employee_name(), "track": "",
 	})
 	_next_employee_id += 1
 	money_changed.emit(money)
@@ -409,12 +420,42 @@ func exam_attribute_threshold(level: int) -> int:
 	return EXAM_ATTRIBUTE_THRESHOLD_BASE + EXAM_ATTRIBUTE_THRESHOLD_LEVEL_STEP * level
 
 
+# 工人赛道看机械/电气/钣喷/细心四维总和；前台赛道只看沟通这一维——
+# 两条赛道的训练成本/成长曲线本来就对称（五门课 base_growth/cost 完全一样，
+# 攻速只跟属性总和的软上限挂钩，跟点在哪维无关），所以门槛公式可以直接复用，
+# 不用给前台另开一套数值
+func _track_core_attribute_value(attrs: Dictionary, track: String) -> int:
+	if track == "front_desk":
+		return attrs["communication"]
+	return attrs["mechanical"] + attrs["electrical"] + attrs["bodywork"] + attrs["precision"]
+
+
+func can_choose_track(id: int) -> bool:
+	var e := get_employee(id)
+	if e.is_empty() or e["kind"] != "apprentice" or e.get("track", "") != "":
+		return false
+	return attribute_sum(e["attributes"]) >= exam_attribute_threshold(0)
+
+
+# 赛道选定后不可改——选错了只能靠以后的解雇机制重新招人，这次不做转岗
+func choose_track(id: int, track: String) -> bool:
+	if not can_choose_track(id):
+		return false
+	if track != "worker" and track != "front_desk":
+		return false
+	var e := get_employee(id)
+	e["track"] = track
+	employees_changed.emit()
+	return true
+
+
 func exam_pass_rate(id: int) -> float:
 	var e := get_employee(id)
 	if e.is_empty():
 		return 0.0
 	var threshold := exam_attribute_threshold(e["level"])
-	var deficit: int = max(0, threshold - attribute_sum(e["attributes"]))
+	var core_value := _track_core_attribute_value(e["attributes"], e.get("track", ""))
+	var deficit: int = max(0, threshold - core_value)
 	var rate := EXAM_PASS_RATE_MAX - EXAM_PASS_RATE_PENALTY_PER_POINT * deficit
 	return clamp(rate, EXAM_PASS_RATE_MIN, EXAM_PASS_RATE_MAX)
 
@@ -422,6 +463,8 @@ func exam_pass_rate(id: int) -> float:
 func can_take_exam(id: int) -> bool:
 	var e := get_employee(id)
 	if e.is_empty() or e["kind"] != "apprentice" or e["busy"]:
+		return false
+	if e.get("track", "") == "":
 		return false
 	if e["level"] >= MAX_APPRENTICE_LEVEL:
 		return false

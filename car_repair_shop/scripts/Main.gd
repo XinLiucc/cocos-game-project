@@ -238,6 +238,11 @@ func _on_allocate_button_pressed(apprentice_id: int, attribute_key: String) -> v
 	_ui_dirty = true
 
 
+func _on_choose_track_pressed(apprentice_id: int, track: String) -> void:
+	game_state.choose_track(apprentice_id, track)
+	_ui_dirty = true
+
+
 func _on_hire_button_pressed() -> void:
 	game_state.hire_worker()
 
@@ -453,10 +458,27 @@ func _create_apprentice_row(apprentice_id: int) -> Dictionary:
 		alloc_button.pressed.connect(_on_allocate_button_pressed.bind(apprentice_id, key))
 		alloc_row.add_child(alloc_button)
 
+	# 赛道选择只在属性总和达标、且还没选过时出现一次；选完这行自动隐藏（can_choose_track 变 false）
+	var track_row := HBoxContainer.new()
+	track_row.visible = false
+	block.add_child(track_row)
+	var track_hint := Label.new()
+	track_hint.text = "可选赛道："
+	track_row.add_child(track_hint)
+	var worker_track_button := Button.new()
+	worker_track_button.text = "选工人"
+	worker_track_button.pressed.connect(_on_choose_track_pressed.bind(apprentice_id, "worker"))
+	track_row.add_child(worker_track_button)
+	var front_desk_track_button := Button.new()
+	front_desk_track_button.text = "选前台"
+	front_desk_track_button.pressed.connect(_on_choose_track_pressed.bind(apprentice_id, "front_desk"))
+	track_row.add_child(front_desk_track_button)
+
 	apprentice_list_container.add_child(block)
 	return {
 		"block": block, "status_label": status_label,
 		"exam_button": exam_button, "course_buttons": course_buttons, "alloc_row": alloc_row,
+		"track_row": track_row,
 	}
 
 
@@ -470,6 +492,9 @@ func _update_apprentice_list() -> void:
 		else:
 			entry = _create_apprentice_row(a["id"])
 			_apprentice_rows.append(entry)
+
+		var track: String = a.get("track", "")
+		var qualified: bool = a.get("qualified", false)
 
 		var status_text := "空闲"
 		if a["busy"]:
@@ -487,17 +512,24 @@ func _update_apprentice_list() -> void:
 				status_text = "带教中（%s，师傅%s）" % [order.car_name, game_state.get_employee(mentor_job["employee_id"])["name"]]
 			else:
 				status_text = "忙碌中"
+		elif qualified and track == "front_desk":
+			status_text = "在岗中（自动分配）"
 
-		var qualified: bool = a.get("qualified", false)
 		var salary: int = game_state.qualified_apprentice_salary() if qualified else game_state.apprentice_salary_for_level(a["level"])
 		var qualified_tag := "[已转正] " if qualified else ""
+		var track_tag := ""
+		if track == "worker":
+			track_tag = "[工人赛道] "
+		elif track == "front_desk":
+			track_tag = "[前台赛道] "
 		var pending_points: int = a.get("pending_points", 0)
 		var mentor_worker_id: int = game_state.mentor_of(a["id"])
 		var mentor_text := "，带教师傅 %s" % game_state.get_employee(mentor_worker_id)["name"] if mentor_worker_id != -1 else ""
 		var station_id: int = game_state.station_of_worker(a["id"])
 		var station_text := "，工位 #%d" % station_id if station_id != -1 else ""
-		var new_status_text := "%s学徒 %s：Lv%d，月薪 %d，待分配点数 %d，%s%s%s [%s]" % [
+		var new_status_text := "%s%s学徒 %s：Lv%d，月薪 %d，待分配点数 %d，%s%s%s [%s]" % [
 			qualified_tag,
+			track_tag,
 			a["name"],
 			a["level"],
 			salary,
@@ -522,6 +554,7 @@ func _update_apprentice_list() -> void:
 			(course_buttons[j] as Button).disabled = not game_state.can_start_training(a["id"], TRAINING_COURSES[j])
 
 		(entry["alloc_row"] as HBoxContainer).visible = pending_points > 0
+		(entry["track_row"] as HBoxContainer).visible = game_state.can_choose_track(a["id"])
 
 
 func _update_labels() -> void:
@@ -647,7 +680,20 @@ func _update_station_list() -> void:
 			_rebuild_station_action_widgets(entry, s["id"], worker_id, available_worker_ids)
 
 
+func _try_auto_assign_pending_orders() -> void:
+	if not game_state.front_desk_on_duty():
+		return
+	while not pending_orders.is_empty():
+		var idle_stations: Array[Dictionary] = game_state.idle_stations()
+		if idle_stations.is_empty():
+			break
+		var station: Dictionary = idle_stations[0]
+		var worker: Dictionary = game_state.get_employee(station["worker_id"])
+		_start_job(station["id"], worker, pending_orders[0])
+
+
 func _update_all() -> void:
+	_try_auto_assign_pending_orders()
 	_update_labels()
 	_update_worker_list()
 	_update_apprentice_list()
