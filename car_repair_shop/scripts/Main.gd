@@ -1,8 +1,11 @@
 extends Node2D
 
-# 占位数值：订单队列/超时流失机制刚搭骨架，容量/间隔/超时/惩罚都是随手定的，之后再平衡
-const QUEUE_CAPACITY := 3
-const ORDER_SPAWN_INTERVAL := 10.0
+# 占位数值：超时流失机制的超时时长/惩罚还是随手定的，之后再平衡。队列容量和生成间隔已经
+# 按口碑分档（见 _order_tier 系列函数），档位门槛直接复用车型解锁的 0/10/25，不必再发明
+# 一套新门槛——口碑判断用的是实时值，堆单超时扣口碑会自动把档位打回低档，形成自我稳定
+const MAX_QUEUE_CAPACITY := 5
+const QUEUE_CAPACITY_BY_TIER := [3, 4, 5]
+const ORDER_SPAWN_INTERVAL_BY_TIER := [10.0, 8.0, 6.0]
 const ORDER_TIMEOUT := 15.0
 const REPUTATION_LOSS_ON_EXPIRE := 1
 
@@ -52,8 +55,8 @@ var last_result_text := "尚未完成过订单"
 # 随便更新不会有排版开销。数组下标与 game_state.workers()/apprentices() 的返回顺序一一对应
 var _worker_rows: Array[Dictionary] = []
 var _apprentice_rows: Array[Dictionary] = []
-# 工位同工人/学徒一样只增不减，下标复用；待处理订单队列长度不超过 QUEUE_CAPACITY，
-# 预先建好固定数量的行、按下标复用，不用的行隐藏即可，不需要动态增删节点
+# 工位同工人/学徒一样只增不减，下标复用；待处理订单队列长度不超过当前档位容量（最高
+# MAX_QUEUE_CAPACITY），预先按上限建好固定数量的行、按下标复用，不用的行隐藏即可
 var _station_rows: Array[Dictionary] = []
 var _order_rows: Array[Dictionary] = []
 # 单次操作里 game_state 信号可能连环触发好几次 _update_all()（比如接单要连续
@@ -64,7 +67,7 @@ var _ui_dirty := false
 
 func _ready() -> void:
 	order_spawn_timer = Timer.new()
-	order_spawn_timer.wait_time = ORDER_SPAWN_INTERVAL
+	order_spawn_timer.wait_time = ORDER_SPAWN_INTERVAL_BY_TIER[0]
 	order_spawn_timer.autostart = true
 	order_spawn_timer.timeout.connect(_on_order_spawn_timer_timeout)
 	add_child(order_spawn_timer)
@@ -78,7 +81,7 @@ func _ready() -> void:
 	game_state.month_changed.connect(_on_int_state_changed)
 	game_state.employees_changed.connect(_on_employees_changed)
 	game_state.stations_changed.connect(_on_stations_changed)
-	for i in range(QUEUE_CAPACITY):
+	for i in range(MAX_QUEUE_CAPACITY):
 		_order_rows.append(_create_order_row())
 	_update_all()
 
@@ -92,6 +95,36 @@ func _process(_delta: float) -> void:
 
 func _get_available_orders() -> Array[Resource]:
 	return ORDER_TYPES.filter(func(o: Resource) -> bool: return game_state.reputation >= o.min_reputation)
+
+
+# 档位直接等于当前解锁的车型数量（1/2/3），跟车型解锁门槛（0/10/25 口碑）天然对齐，
+# 不用另外维护一套门槛常量
+func _order_tier() -> int:
+	return _get_available_orders().size() - 1
+
+
+func _current_queue_capacity() -> int:
+	return QUEUE_CAPACITY_BY_TIER[_order_tier()]
+
+
+func _current_spawn_interval() -> float:
+	return ORDER_SPAWN_INTERVAL_BY_TIER[_order_tier()]
+
+
+# 档位 0 不批量；档位 1 有 20% 概率这次多生成 1 单；档位 2 有 30% 概率多 1 单、
+# 另有 10% 概率多 2 单（先判定小概率的更大批量，避免区间算重）
+func _roll_extra_order_count() -> int:
+	var roll := randf()
+	match _order_tier():
+		1:
+			if roll < 0.2:
+				return 1
+		2:
+			if roll < 0.1:
+				return 2
+			elif roll < 0.4:
+				return 1
+	return 0
 
 
 func _find_by_employee(jobs: Array[Dictionary], employee_id: int) -> Dictionary:
@@ -109,18 +142,23 @@ func _find_job_by_station(station_id: int) -> Dictionary:
 
 
 func _on_order_spawn_timer_timeout() -> void:
-	if pending_orders.size() >= QUEUE_CAPACITY:
+	# 下一轮生成间隔跟着这次算出的档位走，口碑档位变化时间隔会在下一次触发时才生效
+	order_spawn_timer.wait_time = _current_spawn_interval()
+	var capacity := _current_queue_capacity()
+	if pending_orders.size() >= capacity:
 		return
 	var available_orders := _get_available_orders()
-	var order: Resource = available_orders[randi() % available_orders.size()]
-	var timer := Timer.new()
-	timer.one_shot = true
-	timer.wait_time = ORDER_TIMEOUT
-	add_child(timer)
-	var pending := {"order": order, "timer": timer}
-	timer.timeout.connect(_on_pending_order_expired.bind(pending))
-	pending_orders.append(pending)
-	timer.start()
+	var spawn_count: int = min(1 + _roll_extra_order_count(), capacity - pending_orders.size())
+	for i in range(spawn_count):
+		var order: Resource = available_orders[randi() % available_orders.size()]
+		var timer := Timer.new()
+		timer.one_shot = true
+		timer.wait_time = ORDER_TIMEOUT
+		add_child(timer)
+		var pending := {"order": order, "timer": timer}
+		timer.timeout.connect(_on_pending_order_expired.bind(pending))
+		pending_orders.append(pending)
+		timer.start()
 	_ui_dirty = true
 
 
@@ -316,7 +354,7 @@ func _station_status_text(station: Dictionary) -> String:
 # 倒计时文字每帧都在变，但只是给已存在的常驻 Label 重设 .text（不新建节点），
 # 实测这个开销可以忽略（~26 微秒级），不需要挂在 _ui_dirty 脏标记后面
 func _update_dynamic_texts() -> void:
-	for i in range(QUEUE_CAPACITY):
+	for i in range(MAX_QUEUE_CAPACITY):
 		var entry: Dictionary = _order_rows[i]
 		var row: HBoxContainer = entry["row"]
 		if i < pending_orders.size():
@@ -618,7 +656,7 @@ func _rebuild_order_action_widgets(entry: Dictionary, pending: Dictionary, idle_
 
 func _update_pending_order_list() -> void:
 	var idle_station_ids: Array = game_state.idle_stations().map(func(s: Dictionary) -> int: return s["id"])
-	for i in range(QUEUE_CAPACITY):
+	for i in range(MAX_QUEUE_CAPACITY):
 		var entry: Dictionary = _order_rows[i]
 		var pending: Dictionary = pending_orders[i] if i < pending_orders.size() else {}
 		if pending != entry["cached_pending"] or idle_station_ids != entry["cached_idle_station_ids"]:
