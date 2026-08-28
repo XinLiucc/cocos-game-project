@@ -7,7 +7,7 @@ const MAX_QUEUE_CAPACITY := 5
 const QUEUE_CAPACITY_BY_TIER := [3, 4, 5]
 const ORDER_SPAWN_INTERVAL_BY_TIER := [10.0, 8.0, 6.0]
 const ORDER_TIMEOUT := 15.0
-const REPUTATION_LOSS_ON_EXPIRE := 1
+const REPUTATION_LOSS_ON_EXPIRE_BY_TIER := [1, 2, 3]
 
 const ORDER_TYPES: Array[Resource] = [
 	preload("res://resources/orders/sedan.tres"),
@@ -111,6 +111,10 @@ func _current_spawn_interval() -> float:
 	return ORDER_SPAWN_INTERVAL_BY_TIER[_order_tier()]
 
 
+func _current_reputation_loss_on_expire() -> int:
+	return REPUTATION_LOSS_ON_EXPIRE_BY_TIER[_order_tier()]
+
+
 # 档位 0 不批量；档位 1 有 20% 概率这次多生成 1 单；档位 2 有 30% 概率多 1 单、
 # 另有 10% 概率多 2 单（先判定小概率的更大批量，避免区间算重）
 func _roll_extra_order_count() -> int:
@@ -166,8 +170,9 @@ func _on_pending_order_expired(pending: Dictionary) -> void:
 	var order: Resource = pending["order"]
 	pending_orders.erase(pending)
 	(pending["timer"] as Timer).queue_free()
-	game_state.add_reputation(-REPUTATION_LOSS_ON_EXPIRE)
-	last_result_text = "流失：%s 超时未处理，口碑 -%d" % [order.car_name, REPUTATION_LOSS_ON_EXPIRE]
+	var loss := _current_reputation_loss_on_expire()
+	game_state.add_reputation(-loss)
+	last_result_text = "流失：%s 超时未处理，口碑 -%d" % [order.car_name, loss]
 	_ui_dirty = true
 
 
