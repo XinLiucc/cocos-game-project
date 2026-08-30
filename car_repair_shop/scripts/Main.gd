@@ -205,7 +205,8 @@ func _start_job(station_id: int, worker: Dictionary, pending: Dictionary) -> voi
 	var skill_value: int = worker["attributes"].get(order.primary_attribute, game_state.REPAIR_TIME_BASELINE_ATTR)
 	var timer := Timer.new()
 	timer.one_shot = true
-	timer.wait_time = order.repair_time * game_state.repair_time_multiplier(skill_value)
+	timer.wait_time = order.repair_time * game_state.repair_time_multiplier(skill_value) \
+		* game_state.skill_time_multiplier(skill_value)
 	add_child(timer)
 	var job := {
 		"order": order, "timer": timer, "employee_id": worker["id"],
@@ -384,10 +385,18 @@ func _update_dynamic_texts() -> void:
 			label.text = text
 
 
+const _ATTRIBUTE_ONE_CHAR := {
+	"mechanical": "机", "electrical": "电", "bodywork": "钣", "precision": "细", "communication": "沟",
+}
+
+
 func _format_attributes(attrs: Dictionary) -> String:
-	return "机%d 电%d 钣%d 细%d 沟%d" % [
-		attrs["mechanical"], attrs["electrical"], attrs["bodywork"], attrs["precision"], attrs["communication"],
-	]
+	var parts: Array[String] = []
+	for key in game_state.ATTRIBUTE_KEYS:
+		var value: int = attrs[key]
+		var marker := "★" if game_state.has_time_skill(value) else ""
+		parts.append("%s%d%s" % [_ATTRIBUTE_ONE_CHAR[key], value, marker])
+	return " ".join(parts)
 
 
 func _rebuild_worker_action_widgets(entry: Dictionary, worker_id: int, mentor_id: int, available_ids: Array) -> void:

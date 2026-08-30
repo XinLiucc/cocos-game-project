@@ -103,6 +103,13 @@ const REPAIR_TIME_PERCENT_PER_POINT := 0.03
 const REPAIR_TIME_MULTIPLIER_MIN := 0.7
 const REPAIR_TIME_MULTIPLIER_MAX := 1.3
 
+# 2026-08-30：技能系统第一个技能——"熟练技工"，区别于五维属性的连续曲线，是个离散
+# 阈值效果：某项硬技能练到远超常规均值（软上限 150/5 项=30，这里要求 35，得靠训练/带教
+# 刻意专精单项才够）即解锁，接该项对应车型时在 repair_time_multiplier 基础上再打折，
+# 且不受该函数 [0.7x, 1.3x] 钳制——专精技能就是要能突破常规曲线的天花板
+const SKILL_ATTRIBUTE_THRESHOLD := 35
+const SKILL_TIME_MULTIPLIER := 0.9
+
 const STARTING_MONEY := 100
 
 var money: int = STARTING_MONEY
@@ -569,6 +576,14 @@ func repair_time_multiplier(attribute_value: int) -> float:
 	var diff := attribute_value - REPAIR_TIME_BASELINE_ATTR
 	var multiplier := 1.0 - REPAIR_TIME_PERCENT_PER_POINT * diff
 	return clamp(multiplier, REPAIR_TIME_MULTIPLIER_MIN, REPAIR_TIME_MULTIPLIER_MAX)
+
+
+func has_time_skill(attribute_value: int) -> bool:
+	return attribute_value >= SKILL_ATTRIBUTE_THRESHOLD
+
+
+func skill_time_multiplier(attribute_value: int) -> float:
+	return SKILL_TIME_MULTIPLIER if has_time_skill(attribute_value) else 1.0
 
 
 func mentor_points_earned(master_precision: int) -> int:
