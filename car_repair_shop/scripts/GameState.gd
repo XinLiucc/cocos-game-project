@@ -110,6 +110,12 @@ const REPAIR_TIME_MULTIPLIER_MAX := 1.3
 const SKILL_ATTRIBUTE_THRESHOLD := 35
 const SKILL_TIME_MULTIPLIER := 0.9
 
+# 2026-08-31：技能系统第二个技能——"金牌前台"，复用同一套离散阈值（同一个
+# SKILL_ATTRIBUTE_THRESHOLD），但挂在"沟通"这项软技能上：这项属性此前对工人赛道完全没用
+# （只有前台赛道选择门槛看它），转正前台的沟通值达标后，解锁进单间隔再打折——前台越会
+# 沟通，招揽来的顾客越多，呼应"沟通"字面含义
+const SKILL_SPAWN_INTERVAL_MULTIPLIER := 0.9
+
 const STARTING_MONEY := 100
 
 var money: int = STARTING_MONEY
@@ -578,12 +584,26 @@ func repair_time_multiplier(attribute_value: int) -> float:
 	return clamp(multiplier, REPAIR_TIME_MULTIPLIER_MIN, REPAIR_TIME_MULTIPLIER_MAX)
 
 
-func has_time_skill(attribute_value: int) -> bool:
+func has_attribute_skill(attribute_value: int) -> bool:
 	return attribute_value >= SKILL_ATTRIBUTE_THRESHOLD
 
 
 func skill_time_multiplier(attribute_value: int) -> float:
-	return SKILL_TIME_MULTIPLIER if has_time_skill(attribute_value) else 1.0
+	return SKILL_TIME_MULTIPLIER if has_attribute_skill(attribute_value) else 1.0
+
+
+# 前台"金牌"判定是二元开关（跟 front_desk_on_duty 同款：只要有一个达标在岗前台就生效，
+# 不做人数叠加），不区分具体是哪个前台达标
+func has_front_desk_skill() -> bool:
+	for e in employees:
+		if e["kind"] == "apprentice" and e.get("track", "") == "front_desk" and e.get("qualified", false):
+			if has_attribute_skill(e["attributes"]["communication"]):
+				return true
+	return false
+
+
+func front_desk_spawn_interval_multiplier() -> float:
+	return SKILL_SPAWN_INTERVAL_MULTIPLIER if has_front_desk_skill() else 1.0
 
 
 func mentor_points_earned(master_precision: int) -> int:

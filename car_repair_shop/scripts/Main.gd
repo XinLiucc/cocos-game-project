@@ -108,7 +108,7 @@ func _current_queue_capacity() -> int:
 
 
 func _current_spawn_interval() -> float:
-	return ORDER_SPAWN_INTERVAL_BY_TIER[_order_tier()]
+	return ORDER_SPAWN_INTERVAL_BY_TIER[_order_tier()] * game_state.front_desk_spawn_interval_multiplier()
 
 
 func _current_reputation_loss_on_expire() -> int:
@@ -394,7 +394,7 @@ func _format_attributes(attrs: Dictionary) -> String:
 	var parts: Array[String] = []
 	for key in game_state.ATTRIBUTE_KEYS:
 		var value: int = attrs[key]
-		var marker := "★" if game_state.has_time_skill(value) else ""
+		var marker := "★" if game_state.has_attribute_skill(value) else ""
 		parts.append("%s%d%s" % [_ATTRIBUTE_ONE_CHAR[key], value, marker])
 	return " ".join(parts)
 
