@@ -9,7 +9,8 @@ signal employees_changed()
 signal stations_changed()
 
 # 2026-08-20：招人价格固定，不再随人数递增——更贴近现实（不会因为多雇一个人就把工资
-# 行情抬高）。真正约束招人数量的是 max_headcount()（声望驱动的编制上限，工人/学徒共用）
+# 行情抬高）。约束招人数量的是工资本身：工位数固定，多雇的人只能当备用/轮班，工资照发，
+# 雇多了自然亏钱，不需要额外的人数硬上限（2026-09-01 去掉了声望驱动的编制上限）
 const WORKER_HIRE_COST := 100
 const WORKER_SALARY_PER_HEAD := 20
 
@@ -25,12 +26,9 @@ const STATION_PER_FACILITY_LEVEL := 1
 # 不封顶的话工位/费用会无限往上滚，游戏没有"设施线已经点满"的终点感
 const MAX_STATION_COUNT := 5
 
-# 2026-08-20：总编制（工人+学徒共用一个池，转正学徒继续占坑不释放）由声望驱动，
-# 起步给 2 个坑（保证开局能雇 1 工人 + 1 学徒），每攒 15 点声望 +1 坑，封顶 5——
-# 跟工位数上限对齐，避免编制超过工位数、招了人却没工位可用
-const HEADCOUNT_BASE := 2
-const REPUTATION_PER_HEADCOUNT_SLOT := 15
-const MAX_HEADCOUNT := 5
+# 2026-09-01：去掉了曾经的声望驱动编制上限（08-20，理由是"避免招了人却没工位可用"）——
+# 工位数本身就是产能硬约束（08-06），工资是更自然的经济制衡，多雇人自己会亏钱，
+# 不需要额外的人数硬限制
 
 # 占位数值：一天等于多少秒，开发阶段调短方便测试，正式数值以后再定
 const DAYS_PER_MONTH := 30
@@ -277,10 +275,6 @@ func set_employee_busy(id: int, busy: bool) -> void:
 	employees_changed.emit()
 
 
-func max_headcount() -> int:
-	return min(MAX_HEADCOUNT, HEADCOUNT_BASE + floori(reputation / float(REPUTATION_PER_HEADCOUNT_SLOT)))
-
-
 func total_headcount() -> int:
 	return employees.size()
 
@@ -290,7 +284,7 @@ func next_hire_cost() -> int:
 
 
 func can_hire_worker() -> bool:
-	return total_headcount() < max_headcount() and money >= WORKER_HIRE_COST
+	return money >= WORKER_HIRE_COST
 
 
 func hire_worker() -> bool:
@@ -411,7 +405,7 @@ func apprentice_salary_for_level(level: int) -> int:
 
 
 func can_hire_apprentice() -> bool:
-	return worker_count() >= 1 and total_headcount() < max_headcount() and money >= APPRENTICE_HIRE_COST
+	return worker_count() >= 1 and money >= APPRENTICE_HIRE_COST
 
 
 func hire_apprentice() -> bool:

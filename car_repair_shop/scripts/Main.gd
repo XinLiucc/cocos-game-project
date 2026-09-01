@@ -620,9 +620,8 @@ func _update_apprentice_list() -> void:
 
 
 func _update_labels() -> void:
-	money_label.text = "金钱: %d   口碑: %d   编制: %d/%d" % [
-		game_state.money, game_state.reputation,
-		game_state.total_headcount(), game_state.max_headcount(),
+	money_label.text = "金钱: %d   口碑: %d   编制: %d人" % [
+		game_state.money, game_state.reputation, game_state.total_headcount(),
 	]
 	hire_button.text = "雇佣工人 (%d)" % game_state.next_hire_cost()
 	hire_button.disabled = not game_state.can_hire_worker()
