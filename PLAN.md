@@ -778,3 +778,58 @@
 
   下一步：技能系统两个技能都已落地（硬技能→耗时，软技能→进单），可以考虑要不要收尾（比如
   第三个技能，或者转向清单外老账——特殊道具/工具种类、变现方式，两项仍未动）。
+- 2026-09-01：讨论下一步方向，排除了"装备/道具系统"（用户觉得太复杂，先放弃，
+  `特殊道具/工具的种类和获取方式`这条继续留白不动），转而启动"游戏场景可视化"——项目至今
+  全是 Label/Button 纯文字 UI，用户想往真正的像素美术游戏场景方向走；目前没有素材，先用
+  几何图形占位搭场景结构，之后再换真实美术资源。
+
+  范围收窄到"工位"这一块：把 `GameState.stations` 从纯文字列表行，改成真正的可视化场景——
+  每个工位是一个盒子，绑定的工人显示成色块+名字，干活中的订单显示成按车型上色的色块，进度条
+  走时间；金钱/日期/设施、工人/学徒列表、订单队列列表这些暂时保持纯文字 UI 不动，是刻意的
+  范围裁剪，为下次留了"订单队列可视化"、"点工位直接分配（替代下拉选人）"两个可选后续方向。
+
+  实现：`Main.tscn` 原来根节点 `Node2D` 下唯一子节点 `UI`（`VBoxContainer`）只设了
+  `offset_left/top/right/bottom=60/40/60/40`、没设锚点，算出来名义尺寸其实是 `(0,0)`——只是
+  `VBoxContainer` 不裁剪内容才"看起来正常"，这次借机换成规范布局：新增
+  `UIRoot`(CanvasLayer)→`Margin`(全屏锚点 MarginContainer)→`Layout`(HBoxContainer 左右分栏)，
+  左边新增 `StationFloorPanel`（工位可视化区），原来的 `UI` 整体挪到右边，删掉旧的纯文字
+  `StationHeaderRow`/`StationListContainer`。`project.godot` 新增
+  `window/size/viewport_width=1600`（原来只设了高度，宽度用默认 1152，不够放两栏）。
+
+  工位插槽延续项目一贯的"过程式 GDScript 搭节点，不建 .tscn 子场景"约定，`Main.gd` 新增
+  `_create_station_slot(i)`：`PanelContainer` 背景色随三态切换（空闲深灰/已绑蓝灰/工作中绿，
+  预建 `StyleBoxFlat` 按引用整体替换，不逐帧分配）；工人色块（琥珀）、带教学徒小色块（浅青，
+  仅 `job.apprentice_id != -1` 时显示）、车辆色块（颜色取自新增的 `OrderType.color` 字段，
+  三个车型 `.tres` 各设了银灰/橄榄绿/红）、进度条+倒计时文字。`ColorRect`/`ProgressBar`
+  默认 `mouse_filter=STOP` 会挡住下方点击，纯装饰部分全部显式设成 `IGNORE`，绑定/分配用的
+  `OptionButton`+`Button`（原 `action_container`）保持默认、逻辑完全不变。
+  `_update_station_list()` 改名重写为 `_update_station_floor()`，`_rebuild_station_action_widgets`
+  这套"绑定状态没变就不重建"的 diff 逻辑原样保留；进度条数值/倒计时文字是每帧变化量，延伸进
+  `_update_dynamic_texts()`（改名 `_update_dynamic_visuals()`），保持在 `_ui_dirty` 门控之外，
+  跟现有倒计时文字同属"已验证便宜"的操作，不触发 CJK 排版开销。删掉了不再需要的
+  `_station_status_text()`。
+
+  场景结构改动全程用 godot-mcp 的 `add_node`/`manage_scene_structure`/`modify_scene_node`/
+  `remove_scene_node` 完成，没有手写 `.tscn` 文本。用 godot-mcp 实测：空工位正常渲染无布局
+  异常；真实点击走完雇工人→绑定流程，面板颜色/工人色块/名字/操作区随状态正确切换；
+  `game_time_scale` 放慢后真实点击分配订单，`game_get_property` 核对车辆色块颜色跟
+  `sedan.tres` 的 `color` 精确一致（不是肉眼猜）、进度条正常增长；雇学徒+绑带教+分配订单，
+  带教中学徒小色块正确随工作状态出现，完工后正确消失；工作中途调用
+  `unbind_worker_station` 验证边界情况——车辆色块/进度条/倒计时不受影响继续跑，操作区正确
+  变回未绑定态（下拉+绑定按钮），职责分离生效。全程 `game_get_errors` 检查无新增报错。
+
+  下一步：订单队列可视化、"点工位直接分配"交互，都是这次留白的可选方向；清单外老账
+  （变现方式）仍未动。
+
+  用户实机试玩时问"为什么只能招一个工人"，牵出一个既有数值设计的复盘：`GameState.gd`
+  08-20 加的声望驱动编制上限（`max_headcount()`，工人+学徒共用一个池，起步 2、每 15 点
+  声望 +1、封顶 5），当时的理由是"跟工位数上限对齐，避免招了人却没工位可用"。用户指出
+  这道保险其实多余——工位数本身已经是产能硬约束（08-06），工资是更自然的经济制衡，
+  多雇人自己会亏钱，不需要额外的人数硬限制。当场认可并去掉：删掉 `HEADCOUNT_BASE`/
+  `REPUTATION_PER_HEADCOUNT_SLOT`/`MAX_HEADCOUNT`/`max_headcount()`，`can_hire_worker`/
+  `can_hire_apprentice` 只保留金钱检查；`Main.gd` 的"编制: X/Y"标签相应改成"编制: X人"
+  （没有分母）。用 godot-mcp 实测：追加金钱后连续点击雇佣工人按钮，成功雇到 3 名工人
+  （超过原来的编制上限 2），按钮全程只受金钱约束，没有卡住；`game_get_errors` 确认无新增
+  报错。过程中又踩到一次已知的 `game_eval` 坑——脚本作用域看不到 `game_state` 这个编译期
+  autoload 标识符，直接写 `game_state.xxx` 会把调试器卡在断点上，后续 MCP 调用全部超时，
+  改用 `get_node("/root/GameState")` 后正常、`stop_project` 重启后恢复。
