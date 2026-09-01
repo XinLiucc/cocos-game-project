@@ -5,80 +5,108 @@
 [node name="root" type="Node2D" unique_id=461627710]
 script = ExtResource("1_elqb8")
 
-[node name="UI" type="VBoxContainer" parent="." unique_id=2115017723]
-offset_left = 60.0
-offset_top = 40.0
-offset_right = 60.0
-offset_bottom = 40.0
+[node name="UIRoot" type="CanvasLayer" parent="." unique_id=1195680225]
 
-[node name="MoneyLabel" type="Label" parent="UI" unique_id=677769128]
+[node name="Margin" type="MarginContainer" parent="UIRoot" unique_id=1218753004]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/margin_left = 60
+theme_override_constants/margin_top = 40
+theme_override_constants/margin_right = 60
+theme_override_constants/margin_bottom = 40
+
+[node name="Layout" type="HBoxContainer" parent="UIRoot/Margin" unique_id=1476813207]
 layout_mode = 2
-text = "金钱: 0   口碑: 0"
+theme_override_constants/separation = 32
 
-[node name="DayLabel" type="Label" parent="UI" unique_id=892911621]
-layout_mode = 2
-text = "第1月 第1天"
-
-[node name="FacilityRow" type="HBoxContainer" parent="UI" unique_id=1702361642]
-layout_mode = 2
-
-[node name="FacilityLabel" type="Label" parent="UI/FacilityRow" unique_id=228318238]
-layout_mode = 2
-text = "工位等级: 0"
-
-[node name="UpgradeButton" type="Button" parent="UI/FacilityRow" unique_id=1024340173]
-layout_mode = 2
-text = "升级工位 (150)"
-
-[node name="WorkerHeaderRow" type="HBoxContainer" parent="UI" unique_id=391308646]
+[node name="StationFloorPanel" type="PanelContainer" parent="UIRoot/Margin/Layout" unique_id=33256209]
+custom_minimum_size = Vector2(420, 0)
 layout_mode = 2
 
-[node name="WorkerHeaderLabel" type="Label" parent="UI/WorkerHeaderRow" unique_id=1422346824]
+[node name="FloorMargin" type="MarginContainer" parent="UIRoot/Margin/Layout/StationFloorPanel" unique_id=358241342]
 layout_mode = 2
-text = "工人"
+theme_override_constants/margin_left = 16
+theme_override_constants/margin_top = 16
+theme_override_constants/margin_right = 16
+theme_override_constants/margin_bottom = 16
 
-[node name="HireButton" type="Button" parent="UI/WorkerHeaderRow" unique_id=1833872224]
+[node name="FloorVBox" type="VBoxContainer" parent="UIRoot/Margin/Layout/StationFloorPanel/FloorMargin" unique_id=184662552]
 layout_mode = 2
-text = "雇佣工人 (100)"
+theme_override_constants/separation = 12
 
-[node name="WorkerListContainer" type="VBoxContainer" parent="UI" unique_id=377368337]
-layout_mode = 2
-
-[node name="ApprenticeHeaderRow" type="HBoxContainer" parent="UI" unique_id=44309608]
-layout_mode = 2
-
-[node name="ApprenticeHeaderLabel" type="Label" parent="UI/ApprenticeHeaderRow" unique_id=236742885]
-layout_mode = 2
-text = "学徒"
-
-[node name="HireApprenticeButton" type="Button" parent="UI/ApprenticeHeaderRow" unique_id=1223440591]
-layout_mode = 2
-text = "招学徒 (30)"
-
-[node name="ApprenticeListContainer" type="VBoxContainer" parent="UI" unique_id=1219550046]
-layout_mode = 2
-
-[node name="StationHeaderRow" type="HBoxContainer" parent="UI" unique_id=2042143425]
-layout_mode = 2
-
-[node name="StationHeaderLabel" type="Label" parent="UI/StationHeaderRow" unique_id=1467140987]
+[node name="TitleLabel" type="Label" parent="UIRoot/Margin/Layout/StationFloorPanel/FloorMargin/FloorVBox" unique_id=556686442]
 layout_mode = 2
 text = "工位"
 
-[node name="StationListContainer" type="VBoxContainer" parent="UI" unique_id=1825845315]
+[node name="StationSlotsContainer" type="VBoxContainer" parent="UIRoot/Margin/Layout/StationFloorPanel/FloorMargin/FloorVBox" unique_id=1178402630]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="UI" type="VBoxContainer" parent="UIRoot/Margin/Layout" unique_id=2115017723]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="MoneyLabel" type="Label" parent="UIRoot/Margin/Layout/UI" unique_id=677769128]
+layout_mode = 2
+text = "金钱: 0   口碑: 0"
+
+[node name="DayLabel" type="Label" parent="UIRoot/Margin/Layout/UI" unique_id=892911621]
+layout_mode = 2
+text = "第1月 第1天"
+
+[node name="FacilityRow" type="HBoxContainer" parent="UIRoot/Margin/Layout/UI" unique_id=1702361642]
 layout_mode = 2
 
-[node name="OrderHeaderRow" type="HBoxContainer" parent="UI" unique_id=968383375]
+[node name="FacilityLabel" type="Label" parent="UIRoot/Margin/Layout/UI/FacilityRow" unique_id=228318238]
+layout_mode = 2
+text = "工位等级: 0"
+
+[node name="UpgradeButton" type="Button" parent="UIRoot/Margin/Layout/UI/FacilityRow" unique_id=1024340173]
+layout_mode = 2
+text = "升级工位 (150)"
+
+[node name="WorkerHeaderRow" type="HBoxContainer" parent="UIRoot/Margin/Layout/UI" unique_id=391308646]
 layout_mode = 2
 
-[node name="OrderHeaderLabel" type="Label" parent="UI/OrderHeaderRow" unique_id=900966430]
+[node name="WorkerHeaderLabel" type="Label" parent="UIRoot/Margin/Layout/UI/WorkerHeaderRow" unique_id=1422346824]
+layout_mode = 2
+text = "工人"
+
+[node name="HireButton" type="Button" parent="UIRoot/Margin/Layout/UI/WorkerHeaderRow" unique_id=1833872224]
+layout_mode = 2
+text = "雇佣工人 (100)"
+
+[node name="WorkerListContainer" type="VBoxContainer" parent="UIRoot/Margin/Layout/UI" unique_id=377368337]
+layout_mode = 2
+
+[node name="ApprenticeHeaderRow" type="HBoxContainer" parent="UIRoot/Margin/Layout/UI" unique_id=44309608]
+layout_mode = 2
+
+[node name="ApprenticeHeaderLabel" type="Label" parent="UIRoot/Margin/Layout/UI/ApprenticeHeaderRow" unique_id=236742885]
+layout_mode = 2
+text = "学徒"
+
+[node name="HireApprenticeButton" type="Button" parent="UIRoot/Margin/Layout/UI/ApprenticeHeaderRow" unique_id=1223440591]
+layout_mode = 2
+text = "招学徒 (30)"
+
+[node name="ApprenticeListContainer" type="VBoxContainer" parent="UIRoot/Margin/Layout/UI" unique_id=1219550046]
+layout_mode = 2
+
+[node name="OrderHeaderRow" type="HBoxContainer" parent="UIRoot/Margin/Layout/UI" unique_id=968383375]
+layout_mode = 2
+
+[node name="OrderHeaderLabel" type="Label" parent="UIRoot/Margin/Layout/UI/OrderHeaderRow" unique_id=900966430]
 layout_mode = 2
 text = "待处理订单"
 
-[node name="OrderListContainer" type="VBoxContainer" parent="UI" unique_id=2022244783]
+[node name="OrderListContainer" type="VBoxContainer" parent="UIRoot/Margin/Layout/UI" unique_id=2022244783]
 layout_mode = 2
 
-[node name="ResultLabel" type="Label" parent="UI" unique_id=2033812124]
+[node name="ResultLabel" type="Label" parent="UIRoot/Margin/Layout/UI" unique_id=2033812124]
 layout_mode = 2
 text = "最近动态：尚未完成过订单"
 autowrap_mode = 3

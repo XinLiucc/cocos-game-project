@@ -28,17 +28,25 @@ const ATTRIBUTE_SHORT_NAMES := {
 	"precision": "细心", "communication": "沟通",
 }
 
-@onready var money_label: Label = $UI/MoneyLabel
-@onready var facility_label: Label = $UI/FacilityRow/FacilityLabel
-@onready var upgrade_button: Button = $UI/FacilityRow/UpgradeButton
-@onready var day_label: Label = $UI/DayLabel
-@onready var hire_button: Button = $UI/WorkerHeaderRow/HireButton
-@onready var worker_list_container: VBoxContainer = $UI/WorkerListContainer
-@onready var hire_apprentice_button: Button = $UI/ApprenticeHeaderRow/HireApprenticeButton
-@onready var apprentice_list_container: VBoxContainer = $UI/ApprenticeListContainer
-@onready var station_list_container: VBoxContainer = $UI/StationListContainer
-@onready var order_list_container: VBoxContainer = $UI/OrderListContainer
-@onready var result_label: Label = $UI/ResultLabel
+# 2026-09-01：工位可视化场景占位配色（几何图形，之后替换成像素美术）；三态面板底色按
+# visual_state（0空闲/1已绑人/2工作中）索引，运行时建成 StyleBoxFlat 只建一次、按引用整体替换
+const STATION_COLOR_EMPTY := Color(0.22, 0.22, 0.25)
+const STATION_COLOR_IDLE := Color(0.20, 0.32, 0.48)
+const STATION_COLOR_WORKING := Color(0.18, 0.42, 0.28)
+const WORKER_TOKEN_COLOR := Color(0.90, 0.70, 0.20)
+const APPRENTICE_TOKEN_COLOR := Color(0.55, 0.85, 0.95)
+
+@onready var money_label: Label = $UIRoot/Margin/Layout/UI/MoneyLabel
+@onready var facility_label: Label = $UIRoot/Margin/Layout/UI/FacilityRow/FacilityLabel
+@onready var upgrade_button: Button = $UIRoot/Margin/Layout/UI/FacilityRow/UpgradeButton
+@onready var day_label: Label = $UIRoot/Margin/Layout/UI/DayLabel
+@onready var hire_button: Button = $UIRoot/Margin/Layout/UI/WorkerHeaderRow/HireButton
+@onready var worker_list_container: VBoxContainer = $UIRoot/Margin/Layout/UI/WorkerListContainer
+@onready var hire_apprentice_button: Button = $UIRoot/Margin/Layout/UI/ApprenticeHeaderRow/HireApprenticeButton
+@onready var apprentice_list_container: VBoxContainer = $UIRoot/Margin/Layout/UI/ApprenticeListContainer
+@onready var station_slots_container: VBoxContainer = $UIRoot/Margin/Layout/StationFloorPanel/FloorMargin/FloorVBox/StationSlotsContainer
+@onready var order_list_container: VBoxContainer = $UIRoot/Margin/Layout/UI/OrderListContainer
+@onready var result_label: Label = $UIRoot/Margin/Layout/UI/ResultLabel
 @onready var game_state: Node = get_node("/root/GameState")
 
 # 每个工位一个进行中任务：{"order": Resource, "timer": Timer, "employee_id": int, "station_id": int}
@@ -59,6 +67,8 @@ var _apprentice_rows: Array[Dictionary] = []
 # MAX_QUEUE_CAPACITY），预先按上限建好固定数量的行、按下标复用，不用的行隐藏即可
 var _station_rows: Array[Dictionary] = []
 var _order_rows: Array[Dictionary] = []
+# 三态面板底色，_ready() 里按 STATION_COLOR_* 常量建一次，索引即 visual_state
+var _station_style_by_state: Array[StyleBoxFlat] = []
 # 单次操作里 game_state 信号可能连环触发好几次 _update_all()（比如接单要连续
 # set_employee_busy 师傅+学徒两次），改成只打脏标记、_process() 里每帧最多重建一次列表，
 # 避免一次点击引发好几倍的列表重建（这是"点接单修车卡顿"的根因）
@@ -66,6 +76,14 @@ var _ui_dirty := false
 
 
 func _ready() -> void:
+	for color in [STATION_COLOR_EMPTY, STATION_COLOR_IDLE, STATION_COLOR_WORKING]:
+		var style := StyleBoxFlat.new()
+		style.bg_color = color
+		style.corner_radius_top_left = 6
+		style.corner_radius_top_right = 6
+		style.corner_radius_bottom_left = 6
+		style.corner_radius_bottom_right = 6
+		_station_style_by_state.append(style)
 	order_spawn_timer = Timer.new()
 	order_spawn_timer.wait_time = ORDER_SPAWN_INTERVAL_BY_TIER[0]
 	order_spawn_timer.autostart = true
@@ -87,7 +105,7 @@ func _ready() -> void:
 
 
 func _process(_delta: float) -> void:
-	_update_dynamic_texts()
+	_update_dynamic_visuals()
 	if _ui_dirty:
 		_update_all()
 		_ui_dirty = false
@@ -345,21 +363,10 @@ func _on_stations_changed() -> void:
 	_ui_dirty = true
 
 
-func _station_status_text(station: Dictionary) -> String:
-	var worker_id: int = station["worker_id"]
-	var bound_text := "，绑定工人 %s" % game_state.get_employee(worker_id)["name"] if worker_id != -1 else "，未绑定"
-	var job := _find_job_by_station(station["id"])
-	var status_text := "空闲"
-	if not job.is_empty():
-		var order: Resource = job["order"]
-		var timer: Timer = job["timer"]
-		status_text = "工作中（%s 剩余 %.1fs）" % [order.car_name, timer.time_left]
-	return "工位 #%d：%s%s" % [station["id"], status_text, bound_text]
-
-
-# 倒计时文字每帧都在变，但只是给已存在的常驻 Label 重设 .text（不新建节点），
-# 实测这个开销可以忽略（~26 微秒级），不需要挂在 _ui_dirty 脏标记后面
-func _update_dynamic_texts() -> void:
+# 倒计时文字/进度条每帧都在变，但只是给已存在的常驻节点重设数值属性或短文字（不新建节点），
+# 实测文字重设这个开销可以忽略（~26 微秒级），进度条数值更没有排版成本，不需要挂在 _ui_dirty
+# 脏标记后面
+func _update_dynamic_visuals() -> void:
 	for i in range(MAX_QUEUE_CAPACITY):
 		var entry: Dictionary = _order_rows[i]
 		var row: HBoxContainer = entry["row"]
@@ -379,10 +386,13 @@ func _update_dynamic_texts() -> void:
 		if i >= game_state.stations.size():
 			break
 		var entry: Dictionary = _station_rows[i]
-		var text := _station_status_text(game_state.stations[i])
-		var label: Label = entry["label"]
-		if label.text != text:
-			label.text = text
+		var job := _find_job_by_station(game_state.stations[i]["id"])
+		if job.is_empty():
+			continue
+		var timer: Timer = job["timer"]
+		var progress: float = 1.0 - timer.time_left / timer.wait_time if timer.wait_time > 0.0 else 1.0
+		(entry["progress_bar"] as ProgressBar).value = progress
+		(entry["time_label"] as Label).text = "%.1fs" % timer.time_left
 
 
 const _ATTRIBUTE_ONE_CHAR := {
@@ -701,7 +711,90 @@ func _rebuild_station_action_widgets(entry: Dictionary, station_id: int, worker_
 	entry["available_worker_ids"] = available_worker_ids
 
 
-func _update_station_list() -> void:
+func _create_station_slot(i: int) -> Dictionary:
+	# 工位插槽是一个盒子（PanelContainer 背景色随三态切换），里面依次是：状态行
+	# （编号+工人色块+工人名+带教学徒小色块+车辆色块+倒计时）、进度条、绑定/分配操作区
+	# （= 原来的 action_container，绑定/解绑逻辑完全复用 _rebuild_station_action_widgets）。
+	# ColorRect/ProgressBar 默认 mouse_filter=STOP 会挡住点击，纯装饰部分都要显式设成 IGNORE
+	var slot := PanelContainer.new()
+	slot.mouse_filter = Control.MOUSE_FILTER_PASS
+	slot.add_theme_stylebox_override("panel", _station_style_by_state[0])
+
+	var slot_margin := MarginContainer.new()
+	slot_margin.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	for side in ["left", "top", "right", "bottom"]:
+		slot_margin.add_theme_constant_override("margin_%s" % side, 8)
+	slot.add_child(slot_margin)
+
+	var slot_vbox := VBoxContainer.new()
+	slot_vbox.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	slot_margin.add_child(slot_vbox)
+
+	var top_row := HBoxContainer.new()
+	top_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	slot_vbox.add_child(top_row)
+
+	var id_label := Label.new()
+	id_label.text = "#%d" % (i + 1)
+	id_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	top_row.add_child(id_label)
+
+	var worker_token := ColorRect.new()
+	worker_token.custom_minimum_size = Vector2(20, 20)
+	worker_token.color = WORKER_TOKEN_COLOR
+	worker_token.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	worker_token.visible = false
+	top_row.add_child(worker_token)
+
+	var worker_name_label := Label.new()
+	worker_name_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	top_row.add_child(worker_name_label)
+
+	var apprentice_token := ColorRect.new()
+	apprentice_token.custom_minimum_size = Vector2(12, 12)
+	apprentice_token.color = APPRENTICE_TOKEN_COLOR
+	apprentice_token.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	apprentice_token.visible = false
+	top_row.add_child(apprentice_token)
+
+	var spacer := Control.new()
+	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	spacer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	top_row.add_child(spacer)
+
+	var car_token := ColorRect.new()
+	car_token.custom_minimum_size = Vector2(36, 20)
+	car_token.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	car_token.visible = false
+	top_row.add_child(car_token)
+
+	var time_label := Label.new()
+	time_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	time_label.visible = false
+	top_row.add_child(time_label)
+
+	var progress_bar := ProgressBar.new()
+	progress_bar.min_value = 0.0
+	progress_bar.max_value = 1.0
+	progress_bar.show_percentage = false
+	progress_bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	progress_bar.visible = false
+	slot_vbox.add_child(progress_bar)
+
+	var action_container := HBoxContainer.new()
+	slot_vbox.add_child(action_container)
+
+	station_slots_container.add_child(slot)
+
+	return {
+		"slot": slot, "worker_token": worker_token, "worker_name_label": worker_name_label,
+		"apprentice_token": apprentice_token, "car_token": car_token, "time_label": time_label,
+		"progress_bar": progress_bar, "action_container": action_container,
+		"visual_state": -1, "bound_worker_id": -2, "available_worker_ids": [-2],
+	}
+
+
+func _update_station_floor() -> void:
 	var bound_worker_ids: Array = game_state.bound_worker_ids()
 	for i in range(game_state.stations.size()):
 		var s: Dictionary = game_state.stations[i]
@@ -709,19 +802,30 @@ func _update_station_list() -> void:
 		if i < _station_rows.size():
 			entry = _station_rows[i]
 		else:
-			var row := HBoxContainer.new()
-			var label := Label.new()
-			row.add_child(label)
-			var action_container := HBoxContainer.new()
-			row.add_child(action_container)
-			entry = {
-				"row": row, "label": label, "action_container": action_container,
-				"bound_worker_id": -2, "available_worker_ids": [-2],
-			}
+			entry = _create_station_slot(i)
 			_station_rows.append(entry)
-			station_list_container.add_child(row)
 
 		var worker_id: int = s["worker_id"]
+		var job := _find_job_by_station(s["id"])
+		var visual_state := 0 if worker_id == -1 else (2 if not job.is_empty() else 1)
+		if visual_state != entry["visual_state"]:
+			(entry["slot"] as PanelContainer).add_theme_stylebox_override("panel", _station_style_by_state[visual_state])
+			entry["visual_state"] = visual_state
+
+		(entry["worker_token"] as ColorRect).visible = worker_id != -1
+		var worker_name: String = game_state.get_employee(worker_id)["name"] if worker_id != -1 else ""
+		var worker_name_label: Label = entry["worker_name_label"]
+		if worker_name_label.text != worker_name:
+			worker_name_label.text = worker_name
+
+		var has_job := not job.is_empty()
+		(entry["car_token"] as ColorRect).visible = has_job
+		(entry["time_label"] as Label).visible = has_job
+		(entry["progress_bar"] as ProgressBar).visible = has_job
+		(entry["apprentice_token"] as ColorRect).visible = has_job and job.get("apprentice_id", -1) != -1
+		if has_job:
+			(entry["car_token"] as ColorRect).color = (job["order"] as Resource).color
+
 		var available_worker_ids: Array = []
 		if worker_id == -1:
 			for w in game_state.station_eligible_employees():
@@ -749,5 +853,5 @@ func _update_all() -> void:
 	_update_labels()
 	_update_worker_list()
 	_update_apprentice_list()
-	_update_station_list()
+	_update_station_floor()
 	_update_pending_order_list()

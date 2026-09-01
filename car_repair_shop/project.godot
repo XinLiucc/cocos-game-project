@@ -22,4 +22,5 @@ McpInteractionServer="*res://scripts/mcp_interaction_server.gd"
 
 [display]
 
+window/size/viewport_width=1600
 window/size/viewport_height=800

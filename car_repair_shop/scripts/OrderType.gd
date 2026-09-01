@@ -8,3 +8,5 @@ extends Resource
 @export var min_reputation: int = 0
 # 2026-08-16：这种车型最吃工人的哪项硬技能（对应 GameState.ATTRIBUTE_KEYS），决定实际耗时
 @export var primary_attribute: String = "mechanical"
+# 2026-09-01：工位可视化场景里车辆色块的颜色，占位几何美术阶段的车型识别方式
+@export var color: Color = Color.WHITE
