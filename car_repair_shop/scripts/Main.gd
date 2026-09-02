@@ -35,6 +35,11 @@ const STATION_COLOR_IDLE := Color(0.20, 0.32, 0.48)
 const STATION_COLOR_WORKING := Color(0.18, 0.42, 0.28)
 const WORKER_TOKEN_COLOR := Color(0.90, 0.70, 0.20)
 const APPRENTICE_TOKEN_COLOR := Color(0.55, 0.85, 0.95)
+# 2026-09-02：前台是二元开关（front_desk_on_duty），没有坑位数/进行中订单/进度条这些概念，
+# 不套工位盒子的三态样式，改成固定的"柜台"一条：只有关/开两态（暗灰/暖金），在岗学徒
+# 显示成色块+名字挂在柜台上，人数不固定但只增不减
+const FRONT_DESK_COLOR_OFF := Color(0.22, 0.22, 0.25)
+const FRONT_DESK_COLOR_ON := Color(0.55, 0.42, 0.12)
 
 @onready var money_label: Label = $UIRoot/Margin/Layout/UI/MoneyLabel
 @onready var facility_label: Label = $UIRoot/Margin/Layout/UI/FacilityRow/FacilityLabel
@@ -44,6 +49,7 @@ const APPRENTICE_TOKEN_COLOR := Color(0.55, 0.85, 0.95)
 @onready var worker_list_container: VBoxContainer = $UIRoot/Margin/Layout/UI/WorkerListContainer
 @onready var hire_apprentice_button: Button = $UIRoot/Margin/Layout/UI/ApprenticeHeaderRow/HireApprenticeButton
 @onready var apprentice_list_container: VBoxContainer = $UIRoot/Margin/Layout/UI/ApprenticeListContainer
+@onready var floor_vbox: VBoxContainer = $UIRoot/Margin/Layout/StationFloorPanel/FloorMargin/FloorVBox
 @onready var station_slots_container: VBoxContainer = $UIRoot/Margin/Layout/StationFloorPanel/FloorMargin/FloorVBox/StationSlotsContainer
 @onready var order_list_container: VBoxContainer = $UIRoot/Margin/Layout/UI/OrderListContainer
 @onready var result_label: Label = $UIRoot/Margin/Layout/UI/ResultLabel
@@ -69,6 +75,13 @@ var _station_rows: Array[Dictionary] = []
 var _order_rows: Array[Dictionary] = []
 # 三态面板底色，_ready() 里按 STATION_COLOR_* 常量建一次，索引即 visual_state
 var _station_style_by_state: Array[StyleBoxFlat] = []
+# 前台柜台的关/开两态底色，同上按引用整体替换
+var _front_desk_style_by_state: Array[StyleBoxFlat] = []
+# 前台柜台：{"panel":PanelContainer, "badges_container":HBoxContainer, "visual_state":-1}
+var _front_desk_panel: Dictionary = {}
+# 在岗前台学徒的色块+名字，按 game_state.apprentices() 下标复用（学徒只增不减，下标稳定），
+# 不是前台赛道/未转正的学徒对应行直接隐藏
+var _front_desk_badge_rows: Array[Dictionary] = []
 # 单次操作里 game_state 信号可能连环触发好几次 _update_all()（比如接单要连续
 # set_employee_busy 师傅+学徒两次），改成只打脏标记、_process() 里每帧最多重建一次列表，
 # 避免一次点击引发好几倍的列表重建（这是"点接单修车卡顿"的根因）
@@ -84,6 +97,17 @@ func _ready() -> void:
 		style.corner_radius_bottom_left = 6
 		style.corner_radius_bottom_right = 6
 		_station_style_by_state.append(style)
+	for color in [FRONT_DESK_COLOR_OFF, FRONT_DESK_COLOR_ON]:
+		var style := StyleBoxFlat.new()
+		style.bg_color = color
+		style.corner_radius_top_left = 6
+		style.corner_radius_top_right = 6
+		style.corner_radius_bottom_left = 6
+		style.corner_radius_bottom_right = 6
+		_front_desk_style_by_state.append(style)
+	_front_desk_panel = _create_front_desk_panel()
+	floor_vbox.add_child(_front_desk_panel["panel"])
+	floor_vbox.move_child(_front_desk_panel["panel"], 0)
 	order_spawn_timer = Timer.new()
 	order_spawn_timer.wait_time = ORDER_SPAWN_INTERVAL_BY_TIER[0]
 	order_spawn_timer.autostart = true
@@ -710,6 +734,76 @@ func _rebuild_station_action_widgets(entry: Dictionary, station_id: int, worker_
 	entry["available_worker_ids"] = available_worker_ids
 
 
+func _create_front_desk_panel() -> Dictionary:
+	# 柜台是固定的一条（不随人数变多），跟工位盒子同款的 PanelContainer+MarginContainer 外壳，
+	# 但只有关/开两态、没有坑位数/进度条概念；在岗学徒的色块+名字挂在 badges_container 里
+	var panel := PanelContainer.new()
+	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	panel.add_theme_stylebox_override("panel", _front_desk_style_by_state[0])
+
+	var margin := MarginContainer.new()
+	margin.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	for side in ["left", "top", "right", "bottom"]:
+		margin.add_theme_constant_override("margin_%s" % side, 8)
+	panel.add_child(margin)
+
+	var row := HBoxContainer.new()
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	margin.add_child(row)
+
+	var title_label := Label.new()
+	title_label.text = "前台"
+	title_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_child(title_label)
+
+	var badges_container := HBoxContainer.new()
+	badges_container.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_child(badges_container)
+
+	return {"panel": panel, "badges_container": badges_container, "visual_state": -1}
+
+
+func _create_front_desk_badge(badges_container: HBoxContainer) -> Dictionary:
+	var row := HBoxContainer.new()
+	row.visible = false
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var token := ColorRect.new()
+	token.custom_minimum_size = Vector2(12, 12)
+	token.color = APPRENTICE_TOKEN_COLOR
+	token.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_child(token)
+	var name_label := Label.new()
+	name_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_child(name_label)
+	badges_container.add_child(row)
+	return {"row": row, "label": name_label}
+
+
+func _update_front_desk_panel() -> void:
+	var state := 1 if game_state.front_desk_on_duty() else 0
+	if state != _front_desk_panel["visual_state"]:
+		(_front_desk_panel["panel"] as PanelContainer).add_theme_stylebox_override("panel", _front_desk_style_by_state[state])
+		_front_desk_panel["visual_state"] = state
+
+	var badges_container: HBoxContainer = _front_desk_panel["badges_container"]
+	var apprentices: Array[Dictionary] = game_state.apprentices()
+	for i in range(apprentices.size()):
+		var a: Dictionary = apprentices[i]
+		var entry: Dictionary
+		if i < _front_desk_badge_rows.size():
+			entry = _front_desk_badge_rows[i]
+		else:
+			entry = _create_front_desk_badge(badges_container)
+			_front_desk_badge_rows.append(entry)
+
+		var on_duty: bool = a.get("track", "") == "front_desk" and a.get("qualified", false)
+		(entry["row"] as HBoxContainer).visible = on_duty
+		if on_duty:
+			var name_label: Label = entry["label"]
+			if name_label.text != a["name"]:
+				name_label.text = a["name"]
+
+
 func _create_station_slot(i: int) -> Dictionary:
 	# 工位插槽是一个盒子（PanelContainer 背景色随三态切换），里面依次是：状态行
 	# （编号+工人色块+工人名+带教学徒小色块+车辆色块+倒计时）、进度条、绑定/分配操作区
@@ -852,5 +946,6 @@ func _update_all() -> void:
 	_update_labels()
 	_update_worker_list()
 	_update_apprentice_list()
+	_update_front_desk_panel()
 	_update_station_floor()
 	_update_pending_order_list()
