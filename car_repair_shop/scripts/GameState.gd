@@ -39,11 +39,16 @@ const APPRENTICE_HIRE_COST := 30
 const APPRENTICE_SALARY_BASE := 15
 const APPRENTICE_SALARY_LEVEL_STEP := 5
 
-# 2026-08-09：员工属性系统骨架。5 项属性（机械/电气/钣喷偏硬技能，细心/沟通偏软技能）。
+# 2026-08-09：员工属性系统骨架。
 # 2026-08-10：区分工人/学徒的起始值——工人是已出师的熟练工，随机值贴近一级考试线；
-# 学徒是白纸，五项统一从最低值起步，全靠训练/带教走方向分化。
+# 学徒是白纸，统一从最低值起步，全靠训练/带教走方向分化。
+# 2026-09-03：工人学徒/前台学徒从招募起就是两种不同职业（不再"先招通用学徒、攒够点数
+# 再选赛道"），两条线属性互不相关：工人线砍掉了跟车型不对应的 precision，剩机械/电气/钣喷
+# 三维（正好一一对应 sedan/suv/sports_car 三种车型的 primary_attribute）；前台线换成
+# 全新的服务向三维（沟通/亲和/效率），具体各自挂什么机制仍待设计，先占住结构。
 # 考试通过率、车型属性权重仍未做，占位数值随手定
-const ATTRIBUTE_KEYS: Array[String] = ["mechanical", "electrical", "bodywork", "precision", "communication"]
+const WORKER_ATTRIBUTE_KEYS: Array[String] = ["mechanical", "electrical", "bodywork"]
+const FRONT_DESK_ATTRIBUTE_KEYS: Array[String] = ["communication", "affinity", "efficiency"]
 const WORKER_ATTR_MIN := 15
 const WORKER_ATTR_MAX := 25
 const APPRENTICE_ATTR_BASE := 5
@@ -85,13 +90,15 @@ const QUALIFIED_SALARY_RATIO := 0.8
 
 # 2026-08-12：带教——属性成长第二条路径。工人可以"带"一个学徒，这是长期绑定关系而不是每次
 # 手动触发的动作：师傅接单干活时，只要绑定的学徒当前空闲，就自动一起进这单（完工后学徒获得
-# 整数属性点），学徒不空闲时师傅照常独自接单。点数数量由师傅的"细心"属性决定（细心越高教得
-# 越好），具体加到哪项属性仍由玩家手动分配，不自动指定。
+# 整数属性点），学徒不空闲时师傅照常独自接单。加到哪项属性仍由玩家手动分配，不自动指定。
 # 2026-08-18：去掉带教自带的固定耗时折扣——跟车型按主技能加权耗时的机制重复了。耗时现在完全
 # 只看工位上工人自己的技能属性；"特定技能减少维修时间"这类效果以后走专门的技能系统设计，
 # 不再由"带教"这个动作本身自带 buff。
-const MENTOR_POINTS_BASE := 1
-const MENTOR_PRECISION_DIVISOR := 10
+# 2026-09-03：产出点数原本挂在师傅的"细心"属性上（细心越高教得越好），但 precision 这维
+# 已经从工人属性里砍掉，且这属于工人/前台两条属性线互不相关后必然要断开的耦合——没有再挑
+# 一维顶替的必要，改成固定区间随机值，跟师傅属性完全脱钩
+const MENTOR_POINTS_MIN := 2
+const MENTOR_POINTS_MAX := 5
 
 # 2026-08-16：车型按属性加权耗时——每种车型对应一项主技能（OrderType.primary_attribute），
 # 工人该项技能值以基准线（贴近 WORKER_ATTR_MIN/MAX 的中点）为 1.0x 倍率，每高/低于基准 1 点
@@ -101,17 +108,18 @@ const REPAIR_TIME_PERCENT_PER_POINT := 0.03
 const REPAIR_TIME_MULTIPLIER_MIN := 0.7
 const REPAIR_TIME_MULTIPLIER_MAX := 1.3
 
-# 2026-08-30：技能系统第一个技能——"熟练技工"，区别于五维属性的连续曲线，是个离散
-# 阈值效果：某项硬技能练到远超常规均值（软上限 150/5 项=30，这里要求 35，得靠训练/带教
-# 刻意专精单项才够）即解锁，接该项对应车型时在 repair_time_multiplier 基础上再打折，
-# 且不受该函数 [0.7x, 1.3x] 钳制——专精技能就是要能突破常规曲线的天花板
+# 2026-08-30：技能系统第一个技能——"熟练技工"，区别于连续曲线，是个离散
+# 阈值效果：某项硬技能练到 35 才解锁，接该项对应车型时在 repair_time_multiplier
+# 基础上再打折，且不受该函数 [0.7x, 1.3x] 钳制。
+# 2026-09-03 提醒：门槛数值当初是按软上限 150/5 项=30 校准的"远超均值"（专精单项才够）；
+# 属性从五维砍成工人/前台各三维后，均分下软上限变成 150/3=50，35 已经低于均值，
+# 这道门槛可能名不副实了——留到之后的数值平衡阶段一起看，这次不动
 const SKILL_ATTRIBUTE_THRESHOLD := 35
 const SKILL_TIME_MULTIPLIER := 0.9
 
 # 2026-08-31：技能系统第二个技能——"金牌前台"，复用同一套离散阈值（同一个
-# SKILL_ATTRIBUTE_THRESHOLD），但挂在"沟通"这项软技能上：这项属性此前对工人赛道完全没用
-# （只有前台赛道选择门槛看它），转正前台的沟通值达标后，解锁进单间隔再打折——前台越会
-# 沟通，招揽来的顾客越多，呼应"沟通"字面含义
+# SKILL_ATTRIBUTE_THRESHOLD），挂在"沟通"这项前台专属属性上：转正前台的沟通值达标后，
+# 解锁进单间隔再打折——前台越会沟通，招揽来的顾客越多，呼应"沟通"字面含义
 const SKILL_SPAWN_INTERVAL_MULTIPLIER := 0.9
 
 const STARTING_MONEY := 100
@@ -184,7 +192,7 @@ func add_reputation(amount: int) -> void:
 
 func _random_worker_attributes() -> Dictionary:
 	var attrs := {}
-	for key in ATTRIBUTE_KEYS:
+	for key in WORKER_ATTRIBUTE_KEYS:
 		attrs[key] = randi_range(WORKER_ATTR_MIN, WORKER_ATTR_MAX)
 	return attrs
 
@@ -206,16 +214,17 @@ func _random_employee_name() -> String:
 	return candidate
 
 
-func _base_apprentice_attributes() -> Dictionary:
+func _base_apprentice_attributes(track: String) -> Dictionary:
+	var keys := FRONT_DESK_ATTRIBUTE_KEYS if track == "front_desk" else WORKER_ATTRIBUTE_KEYS
 	var attrs := {}
-	for key in ATTRIBUTE_KEYS:
+	for key in keys:
 		attrs[key] = APPRENTICE_ATTR_BASE
 	return attrs
 
 
 func attribute_sum(attrs: Dictionary) -> int:
 	var total := 0
-	for key in ATTRIBUTE_KEYS:
+	for key in attrs:
 		total += attrs[key]
 	return total
 
@@ -408,14 +417,22 @@ func can_hire_apprentice() -> bool:
 	return worker_count() >= 1 and money >= APPRENTICE_HIRE_COST
 
 
-func hire_apprentice() -> bool:
+func hire_worker_apprentice() -> bool:
+	return _hire_apprentice("worker")
+
+
+func hire_front_desk_apprentice() -> bool:
+	return _hire_apprentice("front_desk")
+
+
+func _hire_apprentice(track: String) -> bool:
 	if not can_hire_apprentice():
 		return false
 	money -= APPRENTICE_HIRE_COST
 	employees.append({
 		"id": _next_employee_id, "kind": "apprentice", "busy": false, "level": 0,
-		"attributes": _base_apprentice_attributes(), "pending_points": 0, "qualified": false,
-		"name": _random_employee_name(), "track": "",
+		"attributes": _base_apprentice_attributes(track), "pending_points": 0, "qualified": false,
+		"name": _random_employee_name(), "track": track,
 	})
 	_next_employee_id += 1
 	money_changed.emit(money)
@@ -427,42 +444,14 @@ func exam_attribute_threshold(level: int) -> int:
 	return EXAM_ATTRIBUTE_THRESHOLD_BASE + EXAM_ATTRIBUTE_THRESHOLD_LEVEL_STEP * level
 
 
-# 工人赛道看机械/电气/钣喷/细心四维总和；前台赛道只看沟通这一维——
-# 两条赛道的训练成本/成长曲线本来就对称（五门课 base_growth/cost 完全一样，
-# 攻速只跟属性总和的软上限挂钩，跟点在哪维无关），所以门槛公式可以直接复用，
-# 不用给前台另开一套数值
-func _track_core_attribute_value(attrs: Dictionary, track: String) -> int:
-	if track == "front_desk":
-		return attrs["communication"]
-	return attrs["mechanical"] + attrs["electrical"] + attrs["bodywork"] + attrs["precision"]
-
-
-func can_choose_track(id: int) -> bool:
-	var e := get_employee(id)
-	if e.is_empty() or e["kind"] != "apprentice" or e.get("track", "") != "":
-		return false
-	return attribute_sum(e["attributes"]) >= exam_attribute_threshold(0)
-
-
-# 赛道选定后不可改——选错了只能靠以后的解雇机制重新招人，这次不做转岗
-func choose_track(id: int, track: String) -> bool:
-	if not can_choose_track(id):
-		return false
-	if track != "worker" and track != "front_desk":
-		return false
-	var e := get_employee(id)
-	e["track"] = track
-	employees_changed.emit()
-	return true
-
-
+# 工人线/前台线现在都是各自固定三维，属性总和门槛可以直接复用同一套公式，
+# 不用再按赛道区分核心属性取值
 func exam_pass_rate(id: int) -> float:
 	var e := get_employee(id)
 	if e.is_empty():
 		return 0.0
 	var threshold := exam_attribute_threshold(e["level"])
-	var core_value := _track_core_attribute_value(e["attributes"], e.get("track", ""))
-	var deficit: int = max(0, threshold - core_value)
+	var deficit: int = max(0, threshold - attribute_sum(e["attributes"]))
 	var rate := EXAM_PASS_RATE_MAX - EXAM_PASS_RATE_PENALTY_PER_POINT * deficit
 	return clamp(rate, EXAM_PASS_RATE_MIN, EXAM_PASS_RATE_MAX)
 
@@ -470,8 +459,6 @@ func exam_pass_rate(id: int) -> float:
 func can_take_exam(id: int) -> bool:
 	var e := get_employee(id)
 	if e.is_empty() or e["kind"] != "apprentice" or e["busy"]:
-		return false
-	if e.get("track", "") == "":
 		return false
 	if e["level"] >= MAX_APPRENTICE_LEVEL:
 		return false
@@ -600,8 +587,8 @@ func front_desk_spawn_interval_multiplier() -> float:
 	return SKILL_SPAWN_INTERVAL_MULTIPLIER if has_front_desk_skill() else 1.0
 
 
-func mentor_points_earned(master_precision: int) -> int:
-	return MENTOR_POINTS_BASE + master_precision / MENTOR_PRECISION_DIVISOR
+func mentor_points_earned() -> int:
+	return randi_range(MENTOR_POINTS_MIN, MENTOR_POINTS_MAX)
 
 
 func add_attribute_points(id: int, amount: int) -> void:
