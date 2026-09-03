@@ -1,0 +1,11 @@
+[gd_resource type="Resource" format=3]
+
+[ext_resource type="Script" path="res://scripts/TrainingCourse.gd" id="1_tvp3h"]
+
+[resource]
+script = ExtResource("1_tvp3h")
+course_name = "亲和待客课"
+attribute_key = "affinity"
+cost = 20
+duration = 8.0
+base_growth = 8.0

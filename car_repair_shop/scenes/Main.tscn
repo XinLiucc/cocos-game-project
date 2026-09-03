@@ -89,9 +89,13 @@ layout_mode = 2
 layout_mode = 2
 text = "学徒"
 
-[node name="HireApprenticeButton" type="Button" parent="UIRoot/Margin/Layout/UI/ApprenticeHeaderRow" unique_id=1223440591]
+[node name="HireWorkerApprenticeButton" type="Button" parent="UIRoot/Margin/Layout/UI/ApprenticeHeaderRow" unique_id=1223440591]
 layout_mode = 2
 text = "招学徒 (30)"
+
+[node name="HireFrontDeskApprenticeButton" type="Button" parent="UIRoot/Margin/Layout/UI/ApprenticeHeaderRow" unique_id=444457533]
+layout_mode = 2
+text = "招前台学徒 (30)"
 
 [node name="ApprenticeListContainer" type="VBoxContainer" parent="UIRoot/Margin/Layout/UI" unique_id=1219550046]
 layout_mode = 2

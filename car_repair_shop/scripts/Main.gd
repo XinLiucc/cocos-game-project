@@ -15,17 +15,20 @@ const ORDER_TYPES: Array[Resource] = [
 	preload("res://resources/orders/sports_car.tres"),
 ]
 
-const TRAINING_COURSES: Array[Resource] = [
+const WORKER_TRAINING_COURSES: Array[Resource] = [
 	preload("res://resources/courses/mechanical.tres"),
 	preload("res://resources/courses/electrical.tres"),
 	preload("res://resources/courses/bodywork.tres"),
-	preload("res://resources/courses/precision.tres"),
+]
+const FRONT_DESK_TRAINING_COURSES: Array[Resource] = [
 	preload("res://resources/courses/communication.tres"),
+	preload("res://resources/courses/affinity.tres"),
+	preload("res://resources/courses/efficiency.tres"),
 ]
 
 const ATTRIBUTE_SHORT_NAMES := {
 	"mechanical": "机械", "electrical": "电气", "bodywork": "钣喷",
-	"precision": "细心", "communication": "沟通",
+	"communication": "沟通", "affinity": "亲和", "efficiency": "效率",
 }
 
 # 2026-09-01：工位可视化场景占位配色（几何图形，之后替换成像素美术）；三态面板底色按
@@ -47,7 +50,8 @@ const FRONT_DESK_COLOR_ON := Color(0.55, 0.42, 0.12)
 @onready var day_label: Label = $UIRoot/Margin/Layout/UI/DayLabel
 @onready var hire_button: Button = $UIRoot/Margin/Layout/UI/WorkerHeaderRow/HireButton
 @onready var worker_list_container: VBoxContainer = $UIRoot/Margin/Layout/UI/WorkerListContainer
-@onready var hire_apprentice_button: Button = $UIRoot/Margin/Layout/UI/ApprenticeHeaderRow/HireApprenticeButton
+@onready var hire_worker_apprentice_button: Button = $UIRoot/Margin/Layout/UI/ApprenticeHeaderRow/HireWorkerApprenticeButton
+@onready var hire_front_desk_apprentice_button: Button = $UIRoot/Margin/Layout/UI/ApprenticeHeaderRow/HireFrontDeskApprenticeButton
 @onready var apprentice_list_container: VBoxContainer = $UIRoot/Margin/Layout/UI/ApprenticeListContainer
 @onready var floor_vbox: VBoxContainer = $UIRoot/Margin/Layout/StationFloorPanel/FloorMargin/FloorVBox
 @onready var station_slots_container: VBoxContainer = $UIRoot/Margin/Layout/StationFloorPanel/FloorMargin/FloorVBox/StationSlotsContainer
@@ -115,7 +119,8 @@ func _ready() -> void:
 	add_child(order_spawn_timer)
 	hire_button.pressed.connect(_on_hire_button_pressed)
 	upgrade_button.pressed.connect(_on_upgrade_button_pressed)
-	hire_apprentice_button.pressed.connect(_on_hire_apprentice_button_pressed)
+	hire_worker_apprentice_button.pressed.connect(_on_hire_worker_apprentice_button_pressed)
+	hire_front_desk_apprentice_button.pressed.connect(_on_hire_front_desk_apprentice_button_pressed)
 	game_state.money_changed.connect(_on_int_state_changed)
 	game_state.reputation_changed.connect(_on_int_state_changed)
 	game_state.facility_level_changed.connect(_on_int_state_changed)
@@ -270,8 +275,7 @@ func _on_job_complete(job: Dictionary) -> void:
 	game_state.add_reputation(order.reputation_gain)
 	var apprentice_id: int = job.get("apprentice_id", -1)
 	if apprentice_id != -1:
-		var master: Dictionary = game_state.get_employee(job["employee_id"])
-		var points: int = game_state.mentor_points_earned(master["attributes"]["precision"])
+		var points: int = game_state.mentor_points_earned()
 		game_state.add_attribute_points(apprentice_id, points)
 		game_state.set_employee_busy(apprentice_id, false)
 		var apprentice: Dictionary = game_state.get_employee(apprentice_id)
@@ -324,11 +328,6 @@ func _on_allocate_button_pressed(apprentice_id: int, attribute_key: String) -> v
 	_ui_dirty = true
 
 
-func _on_choose_track_pressed(apprentice_id: int, track: String) -> void:
-	game_state.choose_track(apprentice_id, track)
-	_ui_dirty = true
-
-
 func _on_hire_button_pressed() -> void:
 	game_state.hire_worker()
 
@@ -337,8 +336,12 @@ func _on_upgrade_button_pressed() -> void:
 	game_state.upgrade_facility()
 
 
-func _on_hire_apprentice_button_pressed() -> void:
-	game_state.hire_apprentice()
+func _on_hire_worker_apprentice_button_pressed() -> void:
+	game_state.hire_worker_apprentice()
+
+
+func _on_hire_front_desk_apprentice_button_pressed() -> void:
+	game_state.hire_front_desk_apprentice()
 
 
 func _on_exam_button_pressed(employee_id: int) -> void:
@@ -420,13 +423,14 @@ func _update_dynamic_visuals() -> void:
 
 
 const _ATTRIBUTE_ONE_CHAR := {
-	"mechanical": "机", "electrical": "电", "bodywork": "钣", "precision": "细", "communication": "沟",
+	"mechanical": "机", "electrical": "电", "bodywork": "钣",
+	"communication": "沟", "affinity": "亲", "efficiency": "效",
 }
 
 
 func _format_attributes(attrs: Dictionary) -> String:
 	var parts: Array[String] = []
-	for key in game_state.ATTRIBUTE_KEYS:
+	for key in attrs:
 		var value: int = attrs[key]
 		var marker := "★" if game_state.has_attribute_skill(value) else ""
 		parts.append("%s%d%s" % [_ATTRIBUTE_ONE_CHAR[key], value, marker])
@@ -509,7 +513,17 @@ func _update_worker_list() -> void:
 			_rebuild_worker_action_widgets(entry, w["id"], mentor_id, available_ids)
 
 
-func _create_apprentice_row(apprentice_id: int) -> Dictionary:
+func _training_courses_for_track(track: String) -> Array[Resource]:
+	return FRONT_DESK_TRAINING_COURSES if track == "front_desk" else WORKER_TRAINING_COURSES
+
+
+func _attribute_keys_for_track(track: String) -> Array[String]:
+	return game_state.FRONT_DESK_ATTRIBUTE_KEYS if track == "front_desk" else game_state.WORKER_ATTRIBUTE_KEYS
+
+
+# 招募时就定型（工人学徒/前台学徒是两种不同职业，见 GameState.gd 2026-09-03 注释），
+# 课程/属性分配按钮从这一刻起就是固定的那条线，不再需要运行时按"赛道选没选"切换
+func _create_apprentice_row(apprentice_id: int, track: String) -> Dictionary:
 	# 学徒行按钮已经超过单行 HBoxContainer 能容纳的宽度（超出窗口会点不到），
 	# 拆成多个子行的 VBoxContainer：状态行 / 训练课程行 / 属性分配行。
 	# 训练课程按钮文字固定不变（课程列表不会变），属性分配按钮文字也固定不变——
@@ -528,7 +542,8 @@ func _create_apprentice_row(apprentice_id: int) -> Dictionary:
 	var course_row := HBoxContainer.new()
 	block.add_child(course_row)
 	var course_buttons: Array[Button] = []
-	for course in TRAINING_COURSES:
+	var courses := _training_courses_for_track(track)
+	for course in courses:
 		var train_button := Button.new()
 		train_button.text = "训练：%s" % course.course_name
 		train_button.pressed.connect(_on_train_button_pressed.bind(apprentice_id, course))
@@ -538,33 +553,17 @@ func _create_apprentice_row(apprentice_id: int) -> Dictionary:
 	var alloc_row := HBoxContainer.new()
 	alloc_row.visible = false
 	block.add_child(alloc_row)
-	for key in game_state.ATTRIBUTE_KEYS:
+	for key in _attribute_keys_for_track(track):
 		var alloc_button := Button.new()
 		alloc_button.text = "+%s" % ATTRIBUTE_SHORT_NAMES[key]
 		alloc_button.pressed.connect(_on_allocate_button_pressed.bind(apprentice_id, key))
 		alloc_row.add_child(alloc_button)
 
-	# 赛道选择只在属性总和达标、且还没选过时出现一次；选完这行自动隐藏（can_choose_track 变 false）
-	var track_row := HBoxContainer.new()
-	track_row.visible = false
-	block.add_child(track_row)
-	var track_hint := Label.new()
-	track_hint.text = "可选赛道："
-	track_row.add_child(track_hint)
-	var worker_track_button := Button.new()
-	worker_track_button.text = "选工人"
-	worker_track_button.pressed.connect(_on_choose_track_pressed.bind(apprentice_id, "worker"))
-	track_row.add_child(worker_track_button)
-	var front_desk_track_button := Button.new()
-	front_desk_track_button.text = "选前台"
-	front_desk_track_button.pressed.connect(_on_choose_track_pressed.bind(apprentice_id, "front_desk"))
-	track_row.add_child(front_desk_track_button)
-
 	apprentice_list_container.add_child(block)
 	return {
 		"block": block, "status_label": status_label,
-		"exam_button": exam_button, "course_buttons": course_buttons, "alloc_row": alloc_row,
-		"track_row": track_row,
+		"exam_button": exam_button, "course_buttons": course_buttons, "courses": courses,
+		"alloc_row": alloc_row,
 	}
 
 
@@ -576,7 +575,7 @@ func _update_apprentice_list() -> void:
 		if i < _apprentice_rows.size():
 			entry = _apprentice_rows[i]
 		else:
-			entry = _create_apprentice_row(a["id"])
+			entry = _create_apprentice_row(a["id"], a.get("track", ""))
 			_apprentice_rows.append(entry)
 
 		var track: String = a.get("track", "")
@@ -636,11 +635,11 @@ func _update_apprentice_list() -> void:
 		exam_button.disabled = not game_state.can_take_exam(a["id"])
 
 		var course_buttons: Array = entry["course_buttons"]
-		for j in range(TRAINING_COURSES.size()):
-			(course_buttons[j] as Button).disabled = not game_state.can_start_training(a["id"], TRAINING_COURSES[j])
+		var courses: Array = entry["courses"]
+		for j in range(courses.size()):
+			(course_buttons[j] as Button).disabled = not game_state.can_start_training(a["id"], courses[j])
 
 		(entry["alloc_row"] as HBoxContainer).visible = pending_points > 0
-		(entry["track_row"] as HBoxContainer).visible = game_state.can_choose_track(a["id"])
 
 
 func _update_labels() -> void:
@@ -657,8 +656,10 @@ func _update_labels() -> void:
 		upgrade_button.text = "升级工位 (%d)" % game_state.next_upgrade_cost()
 		upgrade_button.disabled = game_state.money < game_state.next_upgrade_cost()
 	day_label.text = "第%d月 第%d天" % [game_state.month, game_state.day]
-	hire_apprentice_button.text = "招学徒 (%d)" % game_state.next_apprentice_hire_cost()
-	hire_apprentice_button.disabled = not game_state.can_hire_apprentice()
+	hire_worker_apprentice_button.text = "招工人学徒 (%d)" % game_state.next_apprentice_hire_cost()
+	hire_worker_apprentice_button.disabled = not game_state.can_hire_apprentice()
+	hire_front_desk_apprentice_button.text = "招前台学徒 (%d)" % game_state.next_apprentice_hire_cost()
+	hire_front_desk_apprentice_button.disabled = not game_state.can_hire_apprentice()
 	var result_text := "最近动态：" + last_result_text
 	if result_label.text != result_text:
 		result_label.text = result_text
