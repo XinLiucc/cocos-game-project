@@ -6,6 +6,8 @@ extends Node2D
 const MAX_QUEUE_CAPACITY := 5
 const QUEUE_CAPACITY_BY_TIER := [3, 4, 5]
 const ORDER_SPAWN_INTERVAL_BY_TIER := [10.0, 8.0, 6.0]
+# 2026-09-04：ORDER_TIMEOUT 本身仍是不随口碑档位走的死数字（那道老账还没动），但现在会被
+# GameState.order_timeout_multiplier() 按在岗前台的"效率"属性再乘一道——两个轴互不影响
 const ORDER_TIMEOUT := 15.0
 const REPUTATION_LOSS_ON_EXPIRE_BY_TIER := [1, 2, 3]
 
@@ -204,7 +206,7 @@ func _on_order_spawn_timer_timeout() -> void:
 		var order: Resource = available_orders[randi() % available_orders.size()]
 		var timer := Timer.new()
 		timer.one_shot = true
-		timer.wait_time = ORDER_TIMEOUT
+		timer.wait_time = ORDER_TIMEOUT * game_state.order_timeout_multiplier()
 		add_child(timer)
 		var pending := {"order": order, "timer": timer}
 		timer.timeout.connect(_on_pending_order_expired.bind(pending))
@@ -271,8 +273,9 @@ func _start_job(station_id: int, worker: Dictionary, pending: Dictionary) -> voi
 func _on_job_complete(job: Dictionary) -> void:
 	var order: Resource = job["order"]
 	var actual_payout: int = roundi(order.payout * game_state.payout_multiplier())
+	var actual_reputation_gain: int = roundi(order.reputation_gain * game_state.reputation_gain_multiplier())
 	game_state.add_money(actual_payout)
-	game_state.add_reputation(order.reputation_gain)
+	game_state.add_reputation(actual_reputation_gain)
 	var apprentice_id: int = job.get("apprentice_id", -1)
 	if apprentice_id != -1:
 		var points: int = game_state.mentor_points_earned()
@@ -280,10 +283,10 @@ func _on_job_complete(job: Dictionary) -> void:
 		game_state.set_employee_busy(apprentice_id, false)
 		var apprentice: Dictionary = game_state.get_employee(apprentice_id)
 		last_result_text = "带教完成：%s，收入 %d，口碑 +%d，学徒 %s 获得 %d 点属性点" % [
-			order.car_name, actual_payout, order.reputation_gain, apprentice["name"], points,
+			order.car_name, actual_payout, actual_reputation_gain, apprentice["name"], points,
 		]
 	else:
-		last_result_text = "完成：%s，收入 %d，口碑 +%d" % [order.car_name, actual_payout, order.reputation_gain]
+		last_result_text = "完成：%s，收入 %d，口碑 +%d" % [order.car_name, actual_payout, actual_reputation_gain]
 	active_jobs.erase(job)
 	(job["timer"] as Timer).queue_free()
 	game_state.set_employee_busy(job["employee_id"], false)

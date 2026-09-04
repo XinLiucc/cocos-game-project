@@ -122,6 +122,17 @@ const SKILL_TIME_MULTIPLIER := 0.9
 # 解锁进单间隔再打折——前台越会沟通，招揽来的顾客越多，呼应"沟通"字面含义
 const SKILL_SPAWN_INTERVAL_MULTIPLIER := 0.9
 
+# 2026-09-04：前台另外两维（亲和/效率）补上连续曲线，跟工人三维的
+# repair_time_multiplier 同款形状（基准值 + 每点百分比 + 钳制区间），只是符号相反——
+# 工人是"越高越省时"（减法），这里是"越高越好"（加法）：亲和接完工口碑增益，
+# 效率接订单超时时限（顺带把 ORDER_TIMEOUT 从死数字变成能被前台影响的数值）。
+# 沿用跟 repair_time 一样的占位数值（基准20/每点3%/钳制[0.7,1.3]），之后数值平衡阶段
+# 可以各自独立调整。离散技能层（类似"金牌前台"）这两维暂不做，留到需要时再加
+const FRONT_DESK_CURVE_BASELINE_ATTR := 20
+const FRONT_DESK_CURVE_PERCENT_PER_POINT := 0.03
+const FRONT_DESK_CURVE_MULTIPLIER_MIN := 0.7
+const FRONT_DESK_CURVE_MULTIPLIER_MAX := 1.3
+
 const STARTING_MONEY := 100
 
 var money: int = STARTING_MONEY
@@ -585,6 +596,33 @@ func has_front_desk_skill() -> bool:
 
 func front_desk_spawn_interval_multiplier() -> float:
 	return SKILL_SPAWN_INTERVAL_MULTIPLIER if has_front_desk_skill() else 1.0
+
+
+# 在岗前台不止一人时取该维度最高值（呼应 has_front_desk_skill 的"有一个达标就生效"），
+# 没有在岗转正前台时返回 -1，调用方据此把曲线钳在基准值上（乘数正好是 1.0，不奖不罚）
+func _front_desk_max_attribute(key: String) -> int:
+	var best := -1
+	for e in employees:
+		if e["kind"] == "apprentice" and e.get("track", "") == "front_desk" and e.get("qualified", false):
+			best = max(best, e["attributes"][key])
+	return best
+
+
+func _front_desk_curve_multiplier(key: String) -> float:
+	var value := _front_desk_max_attribute(key)
+	if value < 0:
+		return 1.0
+	var diff := value - FRONT_DESK_CURVE_BASELINE_ATTR
+	var multiplier := 1.0 + FRONT_DESK_CURVE_PERCENT_PER_POINT * diff
+	return clamp(multiplier, FRONT_DESK_CURVE_MULTIPLIER_MIN, FRONT_DESK_CURVE_MULTIPLIER_MAX)
+
+
+func reputation_gain_multiplier() -> float:
+	return _front_desk_curve_multiplier("affinity")
+
+
+func order_timeout_multiplier() -> float:
+	return _front_desk_curve_multiplier("efficiency")
 
 
 func mentor_points_earned() -> int:
