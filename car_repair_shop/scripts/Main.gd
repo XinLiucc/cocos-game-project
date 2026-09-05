@@ -1,7 +1,7 @@
 extends Node2D
 
 # 占位数值：超时流失机制的超时时长/惩罚还是随手定的，之后再平衡。队列容量和生成间隔已经
-# 按口碑分档（见 _order_tier 系列函数），档位门槛直接复用车型解锁的 0/10/25，不必再发明
+# 按口碑分档（见 _order_tier 系列函数），档位门槛直接复用车型解锁的 0/100/250，不必再发明
 # 一套新门槛——口碑判断用的是实时值，堆单超时扣口碑会自动把档位打回低档，形成自我稳定
 const MAX_QUEUE_CAPACITY := 5
 const QUEUE_CAPACITY_BY_TIER := [3, 4, 5]
@@ -9,7 +9,7 @@ const ORDER_SPAWN_INTERVAL_BY_TIER := [10.0, 8.0, 6.0]
 # 2026-09-04：ORDER_TIMEOUT 本身仍是不随口碑档位走的死数字（那道老账还没动），但现在会被
 # GameState.order_timeout_multiplier() 按在岗前台的"效率"属性再乘一道——两个轴互不影响
 const ORDER_TIMEOUT := 15.0
-const REPUTATION_LOSS_ON_EXPIRE_BY_TIER := [1, 2, 3]
+const REPUTATION_LOSS_ON_EXPIRE_BY_TIER := [10, 20, 30]
 
 const ORDER_TYPES: Array[Resource] = [
 	preload("res://resources/orders/sedan.tres"),
@@ -146,7 +146,7 @@ func _get_available_orders() -> Array[Resource]:
 	return ORDER_TYPES.filter(func(o: Resource) -> bool: return game_state.reputation >= o.min_reputation)
 
 
-# 档位直接等于当前解锁的车型数量（1/2/3），跟车型解锁门槛（0/10/25 口碑）天然对齐，
+# 档位直接等于当前解锁的车型数量（1/2/3），跟车型解锁门槛（0/100/250 口碑）天然对齐，
 # 不用另外维护一套门槛常量
 func _order_tier() -> int:
 	return _get_available_orders().size() - 1
