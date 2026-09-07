@@ -978,3 +978,21 @@
 
   下一步：清单外仍悬空——特殊道具/工具种类、变现方式、学徒培养数值（时长/成长曲线）、
   可视化继续推进（员工/车辆呈现还是纯文本）。按"一个一个来"的节奏，下次从哪一项开始待定。
+- 2026-09-07（续）：补上前台招募的一个缺口——此前前台只能走"招前台学徒→培养→转正考试"
+  这一条路，没有对称于 `hire_worker()` 的"直接花钱雇一个现成前台"入口。跟用户对齐两个
+  数值点：初始属性沿用工人直接雇同款范围（每维随机 15~25，不单独定一套），成本跟雇工人
+  打平（100 金，复用 `WORKER_HIRE_COST`，不新开一档价格）。
+
+  实现：`GameState.gd` 新增 `_random_front_desk_attributes()`（属性范围逻辑抄
+  `_random_worker_attributes()`，键换成前台三维）和 `can_hire_front_desk()`/
+  `hire_front_desk()`（结构抄 `hire_worker()`，产出的是 `kind: "apprentice",
+  qualified: true` 的记录——前台没有独立 kind，转正状态全靠 `qualified` 字段区分，见
+  09-03 的结构说明）；`Main.tscn`/`Main.gd` 在学徒招募行加第三个按钮"雇佣熟手前台"，
+  UI 刷新逻辑复用 `next_hire_cost()` 显示价格。
+
+  用 godot-mcp 实测：`hire_front_desk()` 正确扣 100 金、生成属性落在 15~25 区间、
+  `qualified` 直接为 true、`front_desk_on_duty()` 变 true，`reputation_gain_multiplier`/
+  `order_timeout_multiplier` 按新属性正确计算；截图确认前台柜台点亮、学徒列表显示
+  "[已转正] [前台赛道]"标签；`validate_scripts`/`game_get_errors` 均无新增问题。
+
+  下一步：清单外老账不变——特殊道具/工具种类、变现方式、学徒培养数值、可视化继续推进。
