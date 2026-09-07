@@ -97,6 +97,10 @@ text = "招学徒 (30)"
 layout_mode = 2
 text = "招前台学徒 (30)"
 
+[node name="HireFrontDeskButton" type="Button" parent="UIRoot/Margin/Layout/UI/ApprenticeHeaderRow" unique_id=444457534]
+layout_mode = 2
+text = "雇佣熟手前台 (100)"
+
 [node name="ApprenticeListContainer" type="VBoxContainer" parent="UIRoot/Margin/Layout/UI" unique_id=1219550046]
 layout_mode = 2
 

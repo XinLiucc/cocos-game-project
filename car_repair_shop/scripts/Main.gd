@@ -54,6 +54,7 @@ const FRONT_DESK_COLOR_ON := Color(0.55, 0.42, 0.12)
 @onready var worker_list_container: VBoxContainer = $UIRoot/Margin/Layout/UI/WorkerListContainer
 @onready var hire_worker_apprentice_button: Button = $UIRoot/Margin/Layout/UI/ApprenticeHeaderRow/HireWorkerApprenticeButton
 @onready var hire_front_desk_apprentice_button: Button = $UIRoot/Margin/Layout/UI/ApprenticeHeaderRow/HireFrontDeskApprenticeButton
+@onready var hire_front_desk_button: Button = $UIRoot/Margin/Layout/UI/ApprenticeHeaderRow/HireFrontDeskButton
 @onready var apprentice_list_container: VBoxContainer = $UIRoot/Margin/Layout/UI/ApprenticeListContainer
 @onready var floor_vbox: VBoxContainer = $UIRoot/Margin/Layout/StationFloorPanel/FloorMargin/FloorVBox
 @onready var station_slots_container: VBoxContainer = $UIRoot/Margin/Layout/StationFloorPanel/FloorMargin/FloorVBox/StationSlotsContainer
@@ -123,6 +124,7 @@ func _ready() -> void:
 	upgrade_button.pressed.connect(_on_upgrade_button_pressed)
 	hire_worker_apprentice_button.pressed.connect(_on_hire_worker_apprentice_button_pressed)
 	hire_front_desk_apprentice_button.pressed.connect(_on_hire_front_desk_apprentice_button_pressed)
+	hire_front_desk_button.pressed.connect(_on_hire_front_desk_button_pressed)
 	game_state.money_changed.connect(_on_int_state_changed)
 	game_state.reputation_changed.connect(_on_int_state_changed)
 	game_state.facility_level_changed.connect(_on_int_state_changed)
@@ -345,6 +347,10 @@ func _on_hire_worker_apprentice_button_pressed() -> void:
 
 func _on_hire_front_desk_apprentice_button_pressed() -> void:
 	game_state.hire_front_desk_apprentice()
+
+
+func _on_hire_front_desk_button_pressed() -> void:
+	game_state.hire_front_desk()
 
 
 func _on_exam_button_pressed(employee_id: int) -> void:
@@ -663,6 +669,8 @@ func _update_labels() -> void:
 	hire_worker_apprentice_button.disabled = not game_state.can_hire_apprentice()
 	hire_front_desk_apprentice_button.text = "招前台学徒 (%d)" % game_state.next_apprentice_hire_cost()
 	hire_front_desk_apprentice_button.disabled = not game_state.can_hire_apprentice()
+	hire_front_desk_button.text = "雇佣熟手前台 (%d)" % game_state.next_hire_cost()
+	hire_front_desk_button.disabled = not game_state.can_hire_front_desk()
 	var result_text := "最近动态：" + last_result_text
 	if result_label.text != result_text:
 		result_label.text = result_text
