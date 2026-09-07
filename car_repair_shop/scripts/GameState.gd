@@ -208,6 +208,15 @@ func _random_worker_attributes() -> Dictionary:
 	return attrs
 
 
+# 2026-09-07：直接雇一个已转正的熟手前台（对称于 hire_worker() 跳过学徒培养期），
+# 属性范围沿用工人直接雇同款 WORKER_ATTR_MIN/MAX，不单独定一套
+func _random_front_desk_attributes() -> Dictionary:
+	var attrs := {}
+	for key in FRONT_DESK_ATTRIBUTE_KEYS:
+		attrs[key] = randi_range(WORKER_ATTR_MIN, WORKER_ATTR_MAX)
+	return attrs
+
+
 func _random_employee_name() -> String:
 	var existing_names: Array = employees.map(func(e: Dictionary) -> String: return e.get("name", ""))
 	var candidate := ""
@@ -315,6 +324,29 @@ func hire_worker() -> bool:
 		"id": _next_employee_id, "kind": "worker", "busy": false, "level": 0,
 		"attributes": _random_worker_attributes(), "mentor_apprentice_id": -1,
 		"name": _random_employee_name(),
+	})
+	_next_employee_id += 1
+	money_changed.emit(money)
+	employees_changed.emit()
+	return true
+
+
+# 2026-09-07：跟 hire_worker() 对称的"直接雇熟手"路径，此前前台只能走学徒培养/转正考试，
+# 没有等价于工人直接雇佣的入口——成本跟 hire_worker() 打平，复用 WORKER_HIRE_COST，
+# 不新开一档价格。产出直接是 qualified: true 的转正前台（kind 仍是 "apprentice"，
+# 前台本来就没有独立的 kind，转正状态全靠 qualified 字段区分，见 09-03 的结构说明）
+func can_hire_front_desk() -> bool:
+	return money >= WORKER_HIRE_COST
+
+
+func hire_front_desk() -> bool:
+	if not can_hire_front_desk():
+		return false
+	money -= WORKER_HIRE_COST
+	employees.append({
+		"id": _next_employee_id, "kind": "apprentice", "busy": false, "level": 0,
+		"attributes": _random_front_desk_attributes(), "pending_points": 0, "qualified": true,
+		"name": _random_employee_name(), "track": "front_desk",
 	})
 	_next_employee_id += 1
 	money_changed.emit(money)
