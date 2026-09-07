@@ -996,3 +996,61 @@
   "[已转正] [前台赛道]"标签；`validate_scripts`/`game_get_errors` 均无新增问题。
 
   下一步：清单外老账不变——特殊道具/工具种类、变现方式、学徒培养数值、可视化继续推进。
+- 2026-09-07（续二）：手动测试时发现两处问题，当场修一处、留一处给明天。
+
+  **当场修完**：新按钮"雇佣熟手前台"分组分错了——之前跟"招前台学徒"挤在"学徒"那一行，
+  但"雇佣工人"（直接雇）和"招工人学徒"（学徒培养）本来就是分成两行的，"学徒"那一行的
+  分组逻辑其实是"按招募方式分行"（学徒行本来就是招工人学徒+招前台学徒共用一行），不是
+  按工种分行。把"雇佣熟手前台"挪到"雇佣工人"那一行，`WorkerHeaderRow` 标签从"工人"改成
+  "直接雇佣"（因为现在装了两个工种的直接雇佣按钮）。`Main.tscn`+`Main.gd` 改动，
+  godot-mcp 截图确认布局对了，无新增报错。
+
+  **留给明天、已经理清楚具体范围，不是模糊的"再看看"**：工人/前台的数据结构不统一。
+  工人直接雇是 `kind:"worker"`，前台（不管是学徒转正还是这次新加的直接雇）统一是
+  `kind:"apprentice", track, qualified` 这套形状——其实"招工人学徒"路径出来的转正工人
+  也早就是后一种形状，只有"直接雇工人"这一条路径还留着 `kind:"worker"` 这个特例。
+  用户明确决定：把"直接雇工人"也改成 `kind:"apprentice", track:"worker", qualified:true`
+  这套形状，跟前台对齐；前台这边不用动，已经是目标形状。多前台"取最优单人不叠加"的机制
+  维持现状，这条已经问过、不用再讨论。
+
+  具体要改的地方（这次会话里读代码逐条核对过）：
+  1. `GameState.gd:310 hire_worker()`——把生成的员工记录换成 apprentice 形状
+     （`kind:"apprentice", track:"worker", qualified:true, level:0, pending_points:0,
+     attributes:_random_worker_attributes(), mentor_apprentice_id:-1`）。
+  2. `GameState.gd:252 workers()`——现在过滤 `kind=="worker"`，得改成"track=="worker" 且
+     qualified"（等价于现在的 `station_eligible_employees()` 逻辑去掉 kind 分支）。
+  3. `GameState.gd:262 station_eligible_employees()`——`workers()` 改定义后这个函数的
+     "或"分支多余了，可以简化甚至直接复用 `workers()`。
+  4. `GameState.gd:566 bind_mentor()`——现在硬性要求 `worker["kind"] != "worker"` 才拒绝，
+     改成看 track/qualified。**注意这里有个行为变化，需要跟用户确认**：现在只有"直接雇的
+     工人"（kind=="worker"）能当师傅带教，"招工人学徒→培养→转正"出来的工人因为
+     kind 始终是 "apprentice"，从来没能当过师傅——这是不是故意的限制，还是纯粹因为
+     kind 字段这道技术门槛顺带挡住的？统一之后如果按 track=="worker" && qualified 判断，
+     这类转正工人会**新获得**带教资格，这是行为扩展，不只是重构，需要明确问一下用户
+     是否认可，不能当成纯技术改动直接改。
+  5. `bound_apprentice_ids()`/`mentor_of()`/`_unbind_apprentice_from_mentor()`
+     （GameState.gd 586~600 附近）——都基于 `workers()` 遍历，第 2 条改完这些会自动跟上，
+     但要跑一遍确认带教相关流程没跑偏。
+  6. `Main.gd` 两个列表容器（`WorkerListContainer`/`ApprenticeListContainer`，
+     `_update_worker_list()`/`_update_apprentice_list()`，行 473/579 附近）——现在是按
+     `kind` 分列表；`kind` 字段这个区分方式没了之后，两个列表该按什么分，**这是一个真正
+     悬而未决的架构问题，需要明天先讨论再动手**：
+       - 方案A：按 track 分（工人列表 vs 前台列表），列表内部再按 qualified 区分展示
+         （类似现在前台列表已经在做的"[已转正]"标签+按钮差异）——改动小，但没有真正
+         解决"转正工人被列表放错类别"的别扭（转正的还是要留在某个列表里显示"学徒"训练/
+         考试按钮）。
+       - 方案B：按 qualified 分（在职员工列表 vs 培养中学徒列表），track 只是列表内部
+         的标签/详情，不再决定进哪个列表——转正那一刻从"学徒列表"真正"毕业"迁移到
+         "员工列表"，更贴近用户这次提的"两者是同一种对象，只是属性和职责不同"这个说法。
+         改动更大（涉及列表迁移逻辑、行控件复用下标对不上号的问题——见
+         `project_godot_cjk_text_perf.md` 提到的"列表按下标复用"这个既有优化手法，
+         迁移列表意味着下标不再稳定，需要重新设计）。
+     这个分歧点必须先问用户选哪个方向，不能替他们决定。
+  7. 列表渲染里硬编码的"学徒"两个字（`Main.gd:624` 附近 `"%s%s学徒 %s：..."`
+     这个格式串）——不管选哪个列表方案，转正的（尤其是直接雇的、从没当过学徒的）人被
+     统一称呼"学徒"都不对，措辞要跟着状态换成"员工"/"前台"/"学徒"之类，这条没有分歧，
+     照做即可。
+
+  下一步：先讨论清楚第 6 条的列表架构方向（A/B 二选一），第 4 条的带教资格扩展要不要
+  一并放开，两个决定敲定后再动代码，按老规矩数据层（GameState.gd）→UI层（Main.gd/tscn）
+  分层提交、godot-mcp 实测。
