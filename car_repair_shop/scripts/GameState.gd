@@ -141,10 +141,12 @@ var facility_level: int = 0
 var day: int = 1
 var month: int = 1
 
-# 每个工人/学徒都是独立个体，不是数字：{id, kind: "worker"|"apprentice", busy, level}
-# level 只对学徒有意义（考试晋级），工人恒为 0。qualified 只对学徒有意义——
-# 考试第一次通过后转正为"普工"，能独立接单，但仍保留 kind="apprentice"
-# 好继续训练/考更高职级（见 take_exam）
+# 每个工人/学徒都是独立个体，不是数字：{id, track: "worker"|"front_desk", busy, level,
+# qualified, attributes, pending_points, name, ...}。工人/前台不再是两种数据形状——
+# 直接雇的和学徒培养转正的，本质是同一种对象，只是 track（干什么）和 qualified
+# （是否已经能独立上岗）这两个字段不同（2026-09-08 统一，见 PLAN.md 09-07 日志）。
+# level 只在未转正时随考试晋级，转正后走 qualified_apprentice_salary() 定薪，
+# 但 level 仍可以继续往上考（转正不是训练的终点）
 var employees: Array[Dictionary] = []
 var _next_employee_id: int = 1
 
@@ -179,9 +181,7 @@ func _on_day_tick() -> void:
 func _on_month_end() -> void:
 	var total_salary := 0
 	for e in employees:
-		if e["kind"] == "worker":
-			total_salary += WORKER_SALARY_PER_HEAD
-		elif e.get("qualified", false):
+		if e.get("qualified", false):
 			total_salary += qualified_apprentice_salary()
 		else:
 			total_salary += apprentice_salary_for_level(e["level"])
@@ -249,26 +249,38 @@ func attribute_sum(attrs: Dictionary) -> int:
 	return total
 
 
+# 能绑工位独立接单、能当师傅带教的工人：必须是工人赛道且已转正——不管是直接雇的
+# 还是学徒培养转正的，统一按这两个字段判断，不再区分招募路径
 func workers() -> Array[Dictionary]:
-	return employees.filter(func(e: Dictionary) -> bool: return e["kind"] == "worker")
-
-
-func apprentices() -> Array[Dictionary]:
-	return employees.filter(func(e: Dictionary) -> bool: return e["kind"] == "apprentice")
-
-
-# 转正学徒（qualified=true）跟正式工人一样能绑工位独立接单，工位分配面板用这个而不是 workers()；
-# 前台赛道的转正学徒不接工位活，排除在外
-func station_eligible_employees() -> Array[Dictionary]:
 	return employees.filter(func(e: Dictionary) -> bool:
-		return e["kind"] == "worker" or (e.get("qualified", false) and e.get("track", "") == "worker"))
+		return e.get("track", "") == "worker" and e.get("qualified", false))
+
+
+# 还没转正的员工（不管哪条赛道）——训练面板的"可指派学徒"下拉复用这个，跟具体
+# 走哪个列表展示无关，纯粹按转正状态筛
+func unqualified_employees() -> Array[Dictionary]:
+	return employees.filter(func(e: Dictionary) -> bool: return not e.get("qualified", false))
+
+
+func apprentice_count() -> int:
+	return unqualified_employees().size()
+
+
+# 按赛道分的两个花名册（列表 UI 按方案A分组用）：同一 track 的人只增不减、下标稳定，
+# 转正前后都待在同一个列表里，靠 qualified 字段切换展示内容，不搬家
+func worker_track_employees() -> Array[Dictionary]:
+	return employees.filter(func(e: Dictionary) -> bool: return e.get("track", "") == "worker")
+
+
+func front_desk_track_employees() -> Array[Dictionary]:
+	return employees.filter(func(e: Dictionary) -> bool: return e.get("track", "") == "front_desk")
 
 
 # 是否有转正前台在岗——前台机制是二元开关：只要有一个在岗，待处理订单就自动分配到空闲工位，
 # 不做人数叠加的连续效率数值
 func front_desk_on_duty() -> bool:
 	for e in employees:
-		if e["kind"] == "apprentice" and e.get("track", "") == "front_desk" and e.get("qualified", false):
+		if e.get("track", "") == "front_desk" and e.get("qualified", false):
 			return true
 	return false
 
@@ -279,10 +291,6 @@ func qualified_apprentice_salary() -> int:
 
 func worker_count() -> int:
 	return workers().size()
-
-
-func apprentice_count() -> int:
-	return apprentices().size()
 
 
 func idle_workers() -> Array[Dictionary]:
@@ -321,9 +329,9 @@ func hire_worker() -> bool:
 		return false
 	money -= WORKER_HIRE_COST
 	employees.append({
-		"id": _next_employee_id, "kind": "worker", "busy": false, "level": 0,
-		"attributes": _random_worker_attributes(), "mentor_apprentice_id": -1,
-		"name": _random_employee_name(),
+		"id": _next_employee_id, "busy": false, "level": 0,
+		"attributes": _random_worker_attributes(), "pending_points": 0, "qualified": true,
+		"name": _random_employee_name(), "track": "worker", "mentor_apprentice_id": -1,
 	})
 	_next_employee_id += 1
 	money_changed.emit(money)
@@ -333,8 +341,7 @@ func hire_worker() -> bool:
 
 # 2026-09-07：跟 hire_worker() 对称的"直接雇熟手"路径，此前前台只能走学徒培养/转正考试，
 # 没有等价于工人直接雇佣的入口——成本跟 hire_worker() 打平，复用 WORKER_HIRE_COST，
-# 不新开一档价格。产出直接是 qualified: true 的转正前台（kind 仍是 "apprentice"，
-# 前台本来就没有独立的 kind，转正状态全靠 qualified 字段区分，见 09-03 的结构说明）
+# 不新开一档价格。产出直接是 qualified: true 的转正前台
 func can_hire_front_desk() -> bool:
 	return money >= WORKER_HIRE_COST
 
@@ -344,7 +351,7 @@ func hire_front_desk() -> bool:
 		return false
 	money -= WORKER_HIRE_COST
 	employees.append({
-		"id": _next_employee_id, "kind": "apprentice", "busy": false, "level": 0,
+		"id": _next_employee_id, "busy": false, "level": 0,
 		"attributes": _random_front_desk_attributes(), "pending_points": 0, "qualified": true,
 		"name": _random_employee_name(), "track": "front_desk",
 	})
@@ -421,7 +428,7 @@ func bind_worker_station(worker_id: int, station_id: int) -> bool:
 	var station := get_station(station_id)
 	if worker.is_empty() or station.is_empty():
 		return false
-	if worker["kind"] != "worker" and not worker.get("qualified", false):
+	if worker.get("track", "") != "worker" or not worker.get("qualified", false):
 		return false
 	for s in stations:
 		if s["worker_id"] == worker_id:
@@ -472,11 +479,14 @@ func _hire_apprentice(track: String) -> bool:
 	if not can_hire_apprentice():
 		return false
 	money -= APPRENTICE_HIRE_COST
-	employees.append({
-		"id": _next_employee_id, "kind": "apprentice", "busy": false, "level": 0,
+	var record := {
+		"id": _next_employee_id, "busy": false, "level": 0,
 		"attributes": _base_apprentice_attributes(track), "pending_points": 0, "qualified": false,
 		"name": _random_employee_name(), "track": track,
-	})
+	}
+	if track == "worker":
+		record["mentor_apprentice_id"] = -1
+	employees.append(record)
 	_next_employee_id += 1
 	money_changed.emit(money)
 	employees_changed.emit()
@@ -499,9 +509,11 @@ func exam_pass_rate(id: int) -> float:
 	return clamp(rate, EXAM_PASS_RATE_MIN, EXAM_PASS_RATE_MAX)
 
 
+# 2026-09-08：数据模型统一后不再区分"招募路径"，转正与否只看 qualified；
+# 直接雇的熟手现在也能继续考试冲更高职级，跟学徒培养转正的一视同仁
 func can_take_exam(id: int) -> bool:
 	var e := get_employee(id)
-	if e.is_empty() or e["kind"] != "apprentice" or e["busy"]:
+	if e.is_empty() or e["busy"]:
 		return false
 	if e["level"] >= MAX_APPRENTICE_LEVEL:
 		return false
@@ -531,7 +543,7 @@ func take_exam(id: int) -> Dictionary:
 
 func can_start_training(id: int, course: Resource) -> bool:
 	var e := get_employee(id)
-	if e.is_empty() or e["kind"] != "apprentice" or e["busy"]:
+	if e.is_empty() or e["busy"]:
 		return false
 	return money >= course.cost
 
@@ -559,13 +571,16 @@ func complete_training(id: int, course: Resource) -> void:
 	employees_changed.emit()
 
 
-# 每个学徒同一时间只能被一个师傅带教：绑定新师傅时，先把这个学徒从原师傅那解绑
+# 每个学徒同一时间只能被一个师傅带教：绑定新师傅时，先把这个学徒从原师傅那解绑。
+# 2026-09-08：带教资格改按 track=="worker" && qualified 判断——学徒培养转正出来的
+# 工人现在也能当师傅了，不再只有直接雇的工人才有这个资格（数据模型统一后自然带来的
+# 行为扩展，已跟用户确认要）
 func bind_mentor(worker_id: int, apprentice_id: int) -> bool:
 	var worker := get_employee(worker_id)
 	var apprentice := get_employee(apprentice_id)
-	if worker.is_empty() or worker["kind"] != "worker":
+	if worker.is_empty() or worker.get("track", "") != "worker" or not worker.get("qualified", false):
 		return false
-	if apprentice.is_empty() or apprentice["kind"] != "apprentice" or apprentice.get("qualified", false):
+	if apprentice.is_empty() or apprentice.get("qualified", false):
 		return false
 	for e in workers():
 		if e.get("mentor_apprentice_id", -1) == apprentice_id:
@@ -620,7 +635,7 @@ func skill_time_multiplier(attribute_value: int) -> float:
 # 不做人数叠加），不区分具体是哪个前台达标
 func has_front_desk_skill() -> bool:
 	for e in employees:
-		if e["kind"] == "apprentice" and e.get("track", "") == "front_desk" and e.get("qualified", false):
+		if e.get("track", "") == "front_desk" and e.get("qualified", false):
 			if has_attribute_skill(e["attributes"]["communication"]):
 				return true
 	return false
@@ -635,7 +650,7 @@ func front_desk_spawn_interval_multiplier() -> float:
 func _front_desk_max_attribute(key: String) -> int:
 	var best := -1
 	for e in employees:
-		if e["kind"] == "apprentice" and e.get("track", "") == "front_desk" and e.get("qualified", false):
+		if e.get("track", "") == "front_desk" and e.get("qualified", false):
 			best = max(best, e["attributes"][key])
 	return best
 
