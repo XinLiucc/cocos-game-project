@@ -101,7 +101,7 @@ text = "招学徒 (30)"
 layout_mode = 2
 text = "招前台学徒 (30)"
 
-[node name="ApprenticeListContainer" type="VBoxContainer" parent="UIRoot/Margin/Layout/UI" unique_id=1219550046]
+[node name="FrontDeskListContainer" type="VBoxContainer" parent="UIRoot/Margin/Layout/UI" unique_id=1219550046]
 layout_mode = 2
 
 [node name="OrderHeaderRow" type="HBoxContainer" parent="UIRoot/Margin/Layout/UI" unique_id=968383375]
