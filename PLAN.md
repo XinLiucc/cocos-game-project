@@ -1054,3 +1054,49 @@
   下一步：先讨论清楚第 6 条的列表架构方向（A/B 二选一），第 4 条的带教资格扩展要不要
   一并放开，两个决定敲定后再动代码，按老规矩数据层（GameState.gd）→UI层（Main.gd/tscn）
   分层提交、godot-mcp 实测。
+
+- 2026-09-08：昨天留的两个决定拍板——带教资格扩展直接要（用户："带教肯定要的呀"）；
+  列表架构选方案A（按工种/track分：工人列表 vs 前台列表，同一 track 的人转正前后待在
+  同一个列表里，靠行内容自己切换"学徒"/"在职"两种展示，不搬家）。按此把"工人/前台
+  数据结构统一"整个改完，分两层提交：
+
+  **数据层**（GameState.gd）：员工记录彻底去掉 `kind` 字段，`hire_worker()` 产出的
+  形状跟学徒培养转正后完全一致（`track:"worker", qualified:true`，外加
+  `mentor_apprentice_id:-1`）。`workers()` 改定义为"qualified && track=='worker'"，
+  `station_eligible_employees()` 直接删掉、调用方改用 `workers()`（两者现在语义完全
+  重合）。新增 `worker_track_employees()`/`front_desk_track_employees()`（按 track
+  筛，人只增不减、下标稳定，供列表 UI 用）和 `unqualified_employees()`（按 qualified
+  筛，供带教下拉的候选池用，替代原来 `apprentices()` 的用途——`apprentices()` 这个
+  名字本身已经删除，因为"学徒"不再是一种数据形状）。`bind_mentor()` 按用户确认的
+  决定放开：只要 `track=="worker" && qualified` 就能当师傅，不再要求"必须是直接雇的"。
+  `can_take_exam()`/`can_start_training()` 去掉了 kind 检查后，顺带牵出一个没预料到的
+  副作用：直接雇的熟手（工人和前台）现在也能继续考试/训练冲更高职级了（以前 kind
+  卡死，永远练不动）——跟学徒培养转正后仍可继续练的行为看齐，判断是统一数据模型后
+  自然该有的结果，没有回头找用户确认，写在这里留痕。另一个副作用：`_on_month_end()`
+  的工资分支也去掉了 kind 判断，直接雇的工人工资从固定 20/月变成跟其他转正员工一样
+  走 `qualified_apprentice_salary()`（20*0.8=16/月）——前台直接雇早就是这个待遇，现在
+  工人直接雇对齐了。顺手补了一个绑工位检查的隐藏漏洞：`bind_worker_station()` 原来的
+  判断条件在数据统一之前就有缝——理论上一个转正前台能绕过检查去绑工位（虽然 UI 从没
+  给过这个入口，一直没触发）；这次改成明确检查 `track=="worker" && qualified`，堵上了。
+
+  **UI层**（Main.gd + Main.tscn）：`WorkerListContainer` 不变，`ApprenticeListContainer`
+  改名 `FrontDeskListContainer`（对应改 @onready 变量名）；原来两套分裂的行渲染代码
+  （`_rebuild_worker_action_widgets`+`_update_worker_list` 一套，`_create_apprentice_row`
+  +`_update_apprentice_list` 另一套）合并成一套：`_create_employee_row(id, track)` 建行
+  （同时建训练用部件和带教操作区），`_update_employee_row(entry, e, track, ...)` 按
+  `qualified`/`track` 决定显示什么、要不要 populate 带教下拉，`_update_worker_list()`/
+  `_update_front_desk_list()` 分别喂 `worker_track_employees()`/
+  `front_desk_track_employees()` 进去。前台柜台在岗色块（`_update_front_desk_panel`）
+  的下标源也从 `apprentices()` 换成 `front_desk_track_employees()`，语义等价，纯改名。
+  列表文字格式统一成一套模板，"学徒"字样按转正状态动态换成"[学徒] 工人/前台"或不带
+  标签（转正后），不再对所有人硬编码"学徒"（这条是上次日志第 7 条留的活）。考试结果
+  toast 也顺手把硬编码的"学徒 X 通过"改成"X 通过"，同一个道理。
+
+  godot-mcp 实测：直接雇工人/前台、招工人学徒/前台学徒四条路径都在各自列表正确出现；
+  工人学徒转正瞬间从"[学徒]"行内切换成在职行、没有跳列表、没丢下标；转正后的学徒
+  （非直接雇）成功获得带教资格并能绑工位；前台转正员工绑工位被正确拒绝。中途 eval
+  一次因为缩进混用 tab/space 把游戏卡进调试器断点，重启项目后换成单行 eval 就没再
+  出问题——纯操作失误，不是代码逻辑的坑，留意以后 eval 多行代码时保持缩进一致。
+
+  下一步：工人/前台数据结构统一到此收尾，PLAN.md 这条 TODO 关闭。清单外老账不变——
+  特殊道具/工具种类、变现方式、学徒培养数值、可视化继续推进，哪个先来看用户心情。
