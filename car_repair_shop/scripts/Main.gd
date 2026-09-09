@@ -6,8 +6,9 @@ extends Node2D
 const MAX_QUEUE_CAPACITY := 5
 const QUEUE_CAPACITY_BY_TIER := [3, 4, 5]
 const ORDER_SPAWN_INTERVAL_BY_TIER := [10.0, 8.0, 6.0]
-# 2026-09-04：ORDER_TIMEOUT 本身仍是不随口碑档位走的死数字（那道老账还没动），但现在会被
-# GameState.order_timeout_multiplier() 按在岗前台的"效率"属性再乘一道——两个轴互不影响
+# 2026-09-09：ORDER_TIMEOUT 是不随口碑档位走的死数字，09-04 曾让前台"效率"属性再乘一道，
+# 但 09-09 前台三维重新定案为"沟通→产单效率/亲和→口碑/效率→收益"三条互不交叉的线后，
+# 撤回了这个乘算——超时时限不再受前台影响，见 GameState.gd 里 front_desk_payout_multiplier()
 const ORDER_TIMEOUT := 15.0
 const REPUTATION_LOSS_ON_EXPIRE_BY_TIER := [10, 20, 30]
 
@@ -161,7 +162,9 @@ func _current_queue_capacity() -> int:
 
 
 func _current_spawn_interval() -> float:
-	return ORDER_SPAWN_INTERVAL_BY_TIER[_order_tier()] * game_state.front_desk_spawn_interval_multiplier()
+	return ORDER_SPAWN_INTERVAL_BY_TIER[_order_tier()] \
+		* game_state.front_desk_spawn_curve_multiplier() \
+		* game_state.front_desk_spawn_interval_multiplier()
 
 
 func _current_reputation_loss_on_expire() -> int:
@@ -210,7 +213,7 @@ func _on_order_spawn_timer_timeout() -> void:
 		var order: Resource = available_orders[randi() % available_orders.size()]
 		var timer := Timer.new()
 		timer.one_shot = true
-		timer.wait_time = ORDER_TIMEOUT * game_state.order_timeout_multiplier()
+		timer.wait_time = ORDER_TIMEOUT
 		add_child(timer)
 		var pending := {"order": order, "timer": timer}
 		timer.timeout.connect(_on_pending_order_expired.bind(pending))
@@ -276,7 +279,9 @@ func _start_job(station_id: int, worker: Dictionary, pending: Dictionary) -> voi
 
 func _on_job_complete(job: Dictionary) -> void:
 	var order: Resource = job["order"]
-	var actual_payout: int = roundi(order.payout * game_state.payout_multiplier())
+	var actual_payout: int = roundi(
+		order.payout * game_state.payout_multiplier() * game_state.front_desk_payout_multiplier()
+	)
 	var actual_reputation_gain: int = roundi(order.reputation_gain * game_state.reputation_gain_multiplier())
 	game_state.add_money(actual_payout)
 	game_state.add_reputation(actual_reputation_gain)

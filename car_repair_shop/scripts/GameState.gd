@@ -128,6 +128,16 @@ const SKILL_SPAWN_INTERVAL_MULTIPLIER := 0.9
 # 效率接订单超时时限（顺带把 ORDER_TIMEOUT 从死数字变成能被前台影响的数值）。
 # 沿用跟 repair_time 一样的占位数值（基准20/每点3%/钳制[0.7,1.3]），之后数值平衡阶段
 # 可以各自独立调整。离散技能层（类似"金牌前台"）这两维暂不做，留到需要时再加
+
+# 2026-09-09：前台三维定案成三条清晰的线——沟通管"订单产生效率"、亲和管"口碑"、
+# 效率管"收益"，用户明确要求三线对三维、不要交叉。改动两处：
+# 1）"效率"原来接的是订单超时时限（09-04 那条），现在改接收益（`payout_multiplier`
+#    的乘数之一），订单超时时限撤回成固定值 ORDER_TIMEOUT，不再受前台影响
+#    （用户在 AskUserQuestion 里选了"效率改管收益"这个选项，明确要撤回 09-04 决定）。
+# 2）"沟通"原来只有离散技能（达标才生效的 0.9x），没有连续曲线，跟亲和/效率不对称；
+#    补一条跟 repair_time_multiplier 同款的减法连续曲线（越高越省时），离散技能
+#    "金牌前台"继续叠加在连续曲线之上、不受钳制——跟工人"熟练技工"叠在
+#    repair_time_multiplier 上的模式完全对齐，不是新发明的规则形状。
 const FRONT_DESK_CURVE_BASELINE_ATTR := 20
 const FRONT_DESK_CURVE_PERCENT_PER_POINT := 0.03
 const FRONT_DESK_CURVE_MULTIPLIER_MIN := 0.7
@@ -645,6 +655,17 @@ func front_desk_spawn_interval_multiplier() -> float:
 	return SKILL_SPAWN_INTERVAL_MULTIPLIER if has_front_desk_skill() else 1.0
 
 
+# 沟通的连续曲线：跟 repair_time_multiplier 同款减法形状（越高越省时），跟离散技能
+# front_desk_spawn_interval_multiplier 各自独立计算、由调用方相乘叠加，不互相钳制
+func front_desk_spawn_curve_multiplier() -> float:
+	var value := _front_desk_max_attribute("communication")
+	if value < 0:
+		return 1.0
+	var diff := value - FRONT_DESK_CURVE_BASELINE_ATTR
+	var multiplier := 1.0 - FRONT_DESK_CURVE_PERCENT_PER_POINT * diff
+	return clamp(multiplier, FRONT_DESK_CURVE_MULTIPLIER_MIN, FRONT_DESK_CURVE_MULTIPLIER_MAX)
+
+
 # 在岗前台不止一人时取该维度最高值（呼应 has_front_desk_skill 的"有一个达标就生效"），
 # 没有在岗转正前台时返回 -1，调用方据此把曲线钳在基准值上（乘数正好是 1.0，不奖不罚）
 func _front_desk_max_attribute(key: String) -> int:
@@ -668,7 +689,9 @@ func reputation_gain_multiplier() -> float:
 	return _front_desk_curve_multiplier("affinity")
 
 
-func order_timeout_multiplier() -> float:
+# 2026-09-09：原来接订单超时时限，改接收益（跟 payout_multiplier 的设施加成相乘叠加），
+# 订单超时时限撤回成固定值，见 Main.gd 里 ORDER_TIMEOUT 的用法
+func front_desk_payout_multiplier() -> float:
 	return _front_desk_curve_multiplier("efficiency")
 
 
