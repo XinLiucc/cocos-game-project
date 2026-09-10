@@ -1,0 +1,13 @@
+[gd_resource type="Resource" format=3]
+
+[ext_resource type="Script" path="res://scripts/OrderType.gd" id="1_cn001"]
+
+[resource]
+script = ExtResource("1_cn001")
+car_name = "工程车"
+repair_time = 4.2
+payout = 230
+reputation_gain = 40
+min_reputation = 320
+attribute_weights = {"mechanical": 0.5, "bodywork": 0.5}
+color = Color(0.85, 0.55, 0.05, 1)

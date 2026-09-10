@@ -1,8 +1,12 @@
 extends Node2D
 
 # 占位数值：超时流失机制的超时时长/惩罚还是随手定的，之后再平衡。队列容量和生成间隔已经
-# 按口碑分档（见 _order_tier 系列函数），档位门槛直接复用车型解锁的 0/100/250，不必再发明
-# 一套新门槛——口碑判断用的是实时值，堆单超时扣口碑会自动把档位打回低档，形成自我稳定
+# 按口碑分档（见 _order_tier 系列函数），档位门槛沿用车型解锁的 0/100/250 三档——口碑判断
+# 用的是实时值，堆单超时扣口碑会自动把档位打回低档，形成自我稳定。
+# 2026-09-10：车型扩充到四大类共 12 款后，每档口碑区间内会同时解锁好几款车型，_order_tier()
+# 原来"按解锁车型数量 -1"算档位的写法（假设解锁数量天然等于 1/2/3）不再成立，改成直接按
+# 口碑数值落在哪个门槛区间判断，档位数量和车型数量彻底解耦
+const TIER_REPUTATION_THRESHOLDS := [0, 100, 250]
 const MAX_QUEUE_CAPACITY := 5
 const QUEUE_CAPACITY_BY_TIER := [3, 4, 5]
 const ORDER_SPAWN_INTERVAL_BY_TIER := [10.0, 8.0, 6.0]
@@ -14,8 +18,17 @@ const REPUTATION_LOSS_ON_EXPIRE_BY_TIER := [10, 20, 30]
 
 const ORDER_TYPES: Array[Resource] = [
 	preload("res://resources/orders/sedan.tres"),
+	preload("res://resources/orders/city_suv.tres"),
+	preload("res://resources/orders/rideshare.tres"),
+	preload("res://resources/orders/cargo_van.tres"),
 	preload("res://resources/orders/suv.tres"),
+	preload("res://resources/orders/ev_sedan.tres"),
+	preload("res://resources/orders/tuner_pickup.tres"),
+	preload("res://resources/orders/offroad.tres"),
+	preload("res://resources/orders/light_truck.tres"),
 	preload("res://resources/orders/sports_car.tres"),
+	preload("res://resources/orders/heavy_truck.tres"),
+	preload("res://resources/orders/construction.tres"),
 ]
 
 const WORKER_TRAINING_COURSES: Array[Resource] = [
@@ -151,10 +164,13 @@ func _get_available_orders() -> Array[Resource]:
 	return ORDER_TYPES.filter(func(o: Resource) -> bool: return game_state.reputation >= o.min_reputation)
 
 
-# 档位直接等于当前解锁的车型数量（1/2/3），跟车型解锁门槛（0/100/250 口碑）天然对齐，
-# 不用另外维护一套门槛常量
+# 档位按口碑落在 TIER_REPUTATION_THRESHOLDS 哪个区间判断，跟当前解锁了几款车型无关
 func _order_tier() -> int:
-	return _get_available_orders().size() - 1
+	var tier := 0
+	for i in range(TIER_REPUTATION_THRESHOLDS.size()):
+		if game_state.reputation >= TIER_REPUTATION_THRESHOLDS[i]:
+			tier = i
+	return tier
 
 
 func _current_queue_capacity() -> int:
