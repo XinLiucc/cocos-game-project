@@ -258,10 +258,11 @@ func _start_job(station_id: int, worker: Dictionary, pending: Dictionary) -> voi
 		if apprentice.is_empty() or apprentice["busy"]:
 			apprentice_id = -1
 
-	var skill_value: int = worker["attributes"].get(order.primary_attribute, game_state.REPAIR_TIME_BASELINE_ATTR)
+	var skill_value: int = worker["attributes"].get(order.primary_attribute(), game_state.REPAIR_TIME_BASELINE_ATTR)
 	var timer := Timer.new()
 	timer.one_shot = true
-	timer.wait_time = order.repair_time * game_state.repair_time_multiplier(skill_value) \
+	timer.wait_time = order.repair_time \
+		* game_state.repair_time_multiplier(worker["attributes"], order.attribute_weights) \
 		* game_state.skill_time_multiplier(skill_value)
 	add_child(timer)
 	var job := {

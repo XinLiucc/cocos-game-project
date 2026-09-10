@@ -627,8 +627,14 @@ func mentor_of(apprentice_id: int) -> int:
 	return -1
 
 
-func repair_time_multiplier(attribute_value: int) -> float:
-	var diff := attribute_value - REPAIR_TIME_BASELINE_ATTR
+# 2026-09-10：车型从单一 primary_attribute 换成 attribute_weights 字典后，耗时倍率
+# 改成按权重加权累加各属性偏离基准值的程度，单属性车型（权重 100% 在一项上）计算结果
+# 跟原来完全一致，纯扩展不破坏现有数值
+func repair_time_multiplier(attribute_values: Dictionary, weights: Dictionary) -> float:
+	var diff := 0.0
+	for key in weights:
+		var value: int = attribute_values.get(key, REPAIR_TIME_BASELINE_ATTR)
+		diff += weights[key] * (value - REPAIR_TIME_BASELINE_ATTR)
 	var multiplier := 1.0 - REPAIR_TIME_PERCENT_PER_POINT * diff
 	return clamp(multiplier, REPAIR_TIME_MULTIPLIER_MIN, REPAIR_TIME_MULTIPLIER_MAX)
 

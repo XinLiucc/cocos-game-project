@@ -9,5 +9,5 @@ repair_time = 3.5
 payout = 180
 reputation_gain = 30
 min_reputation = 250
-primary_attribute = "electrical"
+attribute_weights = {"electrical": 1.0}
 color = Color(0.85, 0.15, 0.15, 1)

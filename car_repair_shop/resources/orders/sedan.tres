@@ -7,5 +7,5 @@ script = ExtResource("1_b662p")
 car_name = "家用轿车"
 payout = 30
 reputation_gain = 10
-primary_attribute = "mechanical"
+attribute_weights = {"mechanical": 1.0}
 color = Color(0.75, 0.75, 0.78, 1)
